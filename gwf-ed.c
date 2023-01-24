@@ -50,7 +50,7 @@ void gwf_cleanup(void *km, gwf_graph_t *g)
 #include "kdq.h"
 #include "kvec.h"
 
-#define GWF_DIAG_SHIFT 0x40000000
+#define GWF_DIAG_SHIFT 0x40000000 //// TODO: understand why
 
 static inline uint64_t gwf_gen_vd(uint32_t v, int32_t d)
 {
@@ -453,21 +453,21 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
 								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a)
 {
-	int32_t i, x, n = *n_a_, do_dedup = 1;
-	kdq_t(gwf_diag_t) * A;	  //// probably queue to keep track of the diagonals on which the wavefront can be further updated
-	gwf_diag_v B = {0, 0, 0}; //// 2d? array of diagonals
-	gwf_diag_t *b;			  //// 1d array of diagonal (why not using kvec here too?)
+	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
+	kdq_t(gwf_diag_t) * A;				   //// probably queue to keep track of the diagonals on which the wavefront can be further updated
+	gwf_diag_v B = {0, 0, 0};			   //// 2d? array of diagonals
+	gwf_diag_t *b;						   //// 1d array of diagonal (why not using kvec here too?)
 
 	*end_v = *end_off = *end_tb = -1;
 	buf->tmp.n = 0;
 	gwf_set64_clear(buf->ha);				 // hash table $h to avoid visiting a vertex twice
 	for (i = 0, x = 1; i < 32; ++i, x <<= 1) //// x = x << 1 (x = x * 2^1)
-		if (x >= n)
+		if (x >= n)							 //// $x is probably used later for the batch method used to speed up alignment -> not relevant for us
 			break;
 	if (i < 4)
 		i = 4;
 	A = kdq_init2(gwf_diag_t, buf->km, i);	  // $A is a queue
-	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// all the code above -> ???
+	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// to properly resize the queue
 #if 0										  // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a));
@@ -480,19 +480,19 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			x = i;
 		}
 	}
-	if (kdq_size(A) == 0)
-		do_dedup = 0;
+	if (kdq_size(A) == 0) //// if the queue is empty (no more diagonals to further update the wavefront are available)
+		do_dedup = 0;	  //// flag set to false as no more diagonals are there to be removed
 #endif
 	kfree(buf->km, a); // $a is not used as it has been copied to $A
 
 	while (kdq_size(A))
 	{
-		gwf_diag_t t;
+		gwf_diag_t t; //// single diagonal
 		uint32_t x0;
-		int32_t ooo, v, d, k, i, vl;
+		int32_t ooo, v, d, k, i, vl; /// $ooo: "out-of-order"
 
-		t = *kdq_shift(gwf_diag_t, A);
-		ooo = t.xo & 1, v = t.vd >> 32;		// vertex
+		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the diagonal on the queue head
+		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
 		d = (int32_t)t.vd - GWF_DIAG_SHIFT; // diagonal
 		k = t.k;							// wavefront position on the vertex
 		vl = g->len[v];						// $vl is the vertex length
