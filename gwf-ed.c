@@ -50,9 +50,9 @@ void gwf_cleanup(void *km, gwf_graph_t *g)
 #include "kdq.h"
 #include "kvec.h"
 
-#define GWF_DIAG_SHIFT 0x40000000 //// TODO: understand why
+#define GWF_DIAG_SHIFT 0x40000000 //// Hex2Bin: 1000000000000000000000000000000 (31 digits)
 
-static inline uint64_t gwf_gen_vd(uint32_t v, int32_t d)
+static inline uint64_t gwf_gen_vd(uint32_t v, int32_t d) //// combine v and d
 {
 	return (uint64_t)v << 32 | (GWF_DIAG_SHIFT + d);
 }
@@ -131,8 +131,8 @@ static size_t gwf_intv_merge2(gwf_intv_t *a, size_t n_b, const gwf_intv_t *b, si
  */
 typedef struct
 {				 // a diagonal
-	uint64_t vd; // higher 32 bits: vertex ID; lower 32 bits: diagonal+0x4000000
-	int32_t k;
+	uint64_t vd; // higher 32 bits: vertex ID; lower 32 bits: diagonal+0x4000000 //// Why not split them?
+	int32_t k;	 //// wavefront position on the vertex
 	uint32_t xo; // higher 31 bits: anti diagonal; lower 1 bit: out-of-order or not
 	int32_t t;
 } gwf_diag_t;
@@ -158,7 +158,7 @@ void gwf_ed_print_diag(size_t n, gwf_diag_t *a) // for debugging only
 static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t)
 {
 	gwf_diag_t *p;
-	kv_pushp(gwf_diag_t, km, *a, &p);
+	kv_pushp(gwf_diag_t, km, *a, &p); //// push a pointer to the newly generated diagonal p
 	p->vd = gwf_gen_vd(v, d), p->k = k, p->xo = x << 1 | ooo, p->t = t;
 }
 
@@ -299,13 +299,13 @@ KHASHL_INIT(KH_LOCAL, gwf_set64_t, gwf_set64, uint64_t, kh_hash_dummy, kh_eq_gen
 
 typedef struct
 {
-	void *km;
-	gwf_set64_t *ha; // hash table for adjacency
-	gwf_map64_t *ht; // hash table for traceback
-	gwf_intv_v intv; //// perhaps these four are all vector constructors from klib
-	gwf_intv_v tmp, swap;
-	gwf_diag_v ooo;
-	gwf_trace_v t;
+	void *km;			  //// chunk of memory, see "kalloc.c"
+	gwf_set64_t *ha;	  // hash table for adjacency
+	gwf_map64_t *ht;	  // hash table for traceback
+	gwf_intv_v intv;	  //// dynamic array of diagonal intervals
+	gwf_intv_v tmp, swap; //// same as above, used as aux support
+	gwf_diag_v ooo;		  //// "out-of-order", dynamic array of diagonals
+	gwf_trace_v t;		  //// dynamic array of traces
 } gwf_edbuf_t;
 
 // remove diagonals not on the wavefront
@@ -343,26 +343,26 @@ static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
 // reach the wavefront
 static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *ts, int32_t ql, const char *qs)
 {
-	int32_t max_k = (ql - d < vl ? ql - d : vl) - 1;
+	int32_t max_k = (ql - d < vl ? ql - d : vl) - 1; //// max wavefront position = min(query length - diagonal, label length) - 1
 	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
-#if 0
+#if 0 //// unoptimized, but easier to understand
 	// int32_t i = k + d; while (k + 1 < g->len[v] && i + 1 < ql && g->seq[v][k+1] == q[i+1]) ++k, ++i;
-	while (k < max_k && *(ts_ + k) == *(qs_ + k))
+	while (k < max_k && *(ts_ + k) == *(qs_ + k)) //// LCP: extending along exact matches to find the furthest cell
 		++k;
 #else
 	uint64_t cmp = 0;
-	while (k + 7 < max_k)
+	while (k + 7 < max_k) //// why 7? perhaps because of byte dimension?
 	{
 		uint64_t x = *(uint64_t *)(ts_ + k); // warning: unaligned memory access
 		uint64_t y = *(uint64_t *)(qs_ + k);
-		cmp = x ^ y;
-		if (cmp == 0)
-			k += 8;
+		cmp = x ^ y;  //// bitwise-exclusive-OR (bit set to 0 if corresponding operands' bits are equal)
+		if (cmp == 0) //// if x and y are bitwise equal
+			k += 8;	  //// 1 byte
 		else
 			break;
 	}
 	if (cmp)
-		k += __builtin_ctzl(cmp) >> 3; // on x86, this is done via the BSR instruction: https://www.felixcloutier.com/x86/bsr
+		k += __builtin_ctzl(cmp) >> 3; // on x86, this is done via the BSR instruction: https://www.felixcloutier.com/x86/bsr //// Bit Scan Reverse
 	else if (k + 7 >= max_k)
 		while (k < max_k && *(ts_ + k) == *(qs_ + k)) // use this for generic CPUs. It is slightly faster than the unoptimized version
 			++k;
@@ -454,9 +454,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
-	kdq_t(gwf_diag_t) * A;				   //// probably queue to keep track of the diagonals on which the wavefront can be further updated
-	gwf_diag_v B = {0, 0, 0};			   //// 2d? array of diagonals
-	gwf_diag_t *b;						   //// 1d array of diagonal (why not using kvec here too?)
+	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
+	gwf_diag_v B = {0, 0, 0};			   //// dynamic array of diagonals: gwf_diag_v is a typedef of kvec_t(gwf_diag_t) (paper's Q)
+	gwf_diag_t *b;						   //// array of diagonals to which B will be copied at the end
 
 	*end_v = *end_off = *end_tb = -1;
 	buf->tmp.n = 0;
@@ -470,7 +470,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// to properly resize the queue
 #if 0										  // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
-	memcpy(A->a, a, n * sizeof(*a));
+	memcpy(A->a, a, n * sizeof(*a)); //// $a is copied to $A
 #else										  // optimized for long vertices.
 	for (x = 0, i = 1; i <= n; ++i)
 	{
@@ -485,21 +485,21 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 #endif
 	kfree(buf->km, a); // $a is not used as it has been copied to $A
 
-	while (kdq_size(A))
+	while (kdq_size(A)) //// while there are still diagonals to update the wavefront
 	{
-		gwf_diag_t t; //// single diagonal
-		uint32_t x0;
-		int32_t ooo, v, d, k, i, vl; /// $ooo: "out-of-order"
+		gwf_diag_t t;				 //// single diagonal
+		uint32_t x0;				 //// anti diagonal
+		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
 
-		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the diagonal on the queue head
+		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
-		d = (int32_t)t.vd - GWF_DIAG_SHIFT; // diagonal
-		k = t.k;							// wavefront position on the vertex
+		d = (int32_t)t.vd - GWF_DIAG_SHIFT; // diagonal //// vd (uint64_t) structure: higher 32 bits: vertex ID; lower 32 bits: diagonal + GWF_DIAG_SHIFT
+		k = t.k;							// wavefront position on the vertex //// for the given diagonal (paper's j)
 		vl = g->len[v];						// $vl is the vertex length
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		i = k + d;							 // query position
+		i = k + d;							 // query position (paper's "i = Hvk + k")
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
-
+		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
 		{ // the most common case: the wavefront is in the middle
 			int32_t push1 = 1, push2 = 1;
@@ -574,7 +574,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	}
 
 	kdq_destroy(gwf_diag_t, A);
-	*n_a_ = n = B.n, b = B.a;
+	*n_a_ = n = B.n, b = B.a; //// b <- B
 
 	if (do_dedup)
 		*n_a_ = n = gwf_dedup(buf, n, b);
@@ -600,25 +600,25 @@ static void gwf_traceback(gwf_edbuf_t *buf, int32_t end_v, int32_t end_tb, gwf_p
 //// ALGORITHM CORE WRAPPER
 int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
 {
-	int32_t s = 0, n_a = 1, end_tb;
-	gwf_diag_t *a;	 //// array of diagonals
-	gwf_edbuf_t buf; //// ??? perhaps a struct (buffer) to store temporary alignment information per single read
+	int32_t s = 0, n_a = 1, end_tb; //// $s: alignment cost, $n_a: number of outgoing arcs, $end_tb: end traceback
+	gwf_diag_t *a;					//// array of diagonals
+	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
 
 	memset(&buf, 0, sizeof(buf)); //// buffer initialization
-	buf.km = km;				  //// ??? probably (used for or related to) diagonal
-	buf.ha = gwf_set64_init2(km); //// ???
-	buf.ht = gwf_map64_init2(km); //// ???
+	buf.km = km;				  //// memory chunk, see "kalloc.c"
+	buf.ha = gwf_set64_init2(km); //// initialization of hash table for adjacency
+	buf.ht = gwf_map64_init2(km); //// initialization of hash table for traceback
 	kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
 	KCALLOC(km, a, 1);
 	a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
 	if (traceback)
-		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// store traceback info along the way
-	while (n_a > 0)											 //// number of outgoing arcs for the current d
+		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
+	while (n_a > 0)
 	{
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a); //// from here to combined extend and expand
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
-		++s; //// update counter for found paths
+		++s; //// increase alignment cost
 #ifdef GWF_DEBUG
 		printf("[%s] dist=%d, n=%d, n_intv=%ld, n_tb=%ld\n", __func__, s, n_a, buf.intv.n, buf.t.n);
 #endif

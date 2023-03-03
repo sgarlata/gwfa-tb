@@ -8,7 +8,7 @@
 #include "gwfa.h"
 #include "ketopt.h"
 #include "kalloc.h"
-#include "kseq.h"
+#include "kseq.h" //// part of klib, a generic standalone and lightweight C library, in particular, kseq is a generic stream buffer and a FASTA/FASTQ format parser
 KSEQ_INIT(gzFile, gzread)
 
 gwf_graph_t *gwf_gfa2gwf(const gfa_t *gfa, uint32_t v0)
@@ -72,10 +72,10 @@ void gwf_graph_print(FILE *fp, const gwf_graph_t *g)
 		fprintf(fp, "L\t%d\t+\t%d\t+\t%dM\n", (uint32_t)(g->arc[i].a >> 32), (uint32_t)g->arc[i].a, g->arc[i].o);
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 {
 	gzFile fp;				  //// some sort of zip format, here used as file pointer
-	kseq_t *ks;				  //// part of klib, a generic standalone and lightweight C library, in particular, kseq is a generic stream buffer and a FASTA/FASTQ format parser
+	kseq_t *ks;				  //// queries, some of the fields of the kseq_t type are "kstring_t name, comment, seq, qual"
 	ketopt_t o = KETOPT_INIT; //// same as above, specifically a command-line argument parser
 	gfa_t *gfa;				  //// reference graph
 	gwf_graph_t *g;			  //// graph representation for the algorithm
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 	int c, print_graph = 0, traceback = 0;
 	uint32_t v0 = 0 << 1 | 0; // first segment, forward strand //// left-shift and bitwise OR (shift has higher precedence), resulting to all zeros
 	uint32_t max_lag = 0;	  //// max lag behind the furthest wavefront --> related to pruning
-	void *km = 0;			  //// klib's pointer used for memory initialization
+	void *km = 0;			  //// chunk of memory managed with kalloc, see "kalloc.c"
 	char *sname = 0;		  //// segment name
 
 	while ((c = ketopt(&o, argc, argv, 1, "ptl:s:", 0)) >= 0)
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	km = km_init(); //// klib's memory initialization:
+	km = km_init();
 
 	gfa = gfa_read(argv[o.ind]); //// reading of the input reference graph
 	assert(gfa);
@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
 	ks = kseq_init(fp);				   //// parse fasta's reads
 	while (kseq_read(ks) >= 0)		   //// one read at a time
 	{
-		int32_t s;
+		int32_t s;																   //// optimal alignment cost
 		s = gwf_ed(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path); //// algorithm core
 		if (traceback)															   //// perhaps where we should contribute, so where to go vertical
 		{
@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
 		else
 			printf("%s\t%d\n", ks->name.s, s); //// if no traceback is requested, just display the matching
 	}
-	kseq_destroy(ks); //// from here, just epilogue
+	kseq_destroy(ks);
 	gzclose(fp);
 	gfa_destroy(gfa);
 
