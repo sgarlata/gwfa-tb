@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 		if (sid < 0)
 			fprintf(stderr, "ERROR: failed to find segment '%s'\n", sname);
 		else
-			v0 = sid << 1 | 0; // TODO: also allow to change the orientation //// perhaps starting from the beginning, but why OR with 0?
+			v0 = sid << 1 | 0; // TODO: also allow to change the orientation
 	}
 	g = gwf_gfa2gwf(gfa, v0); //// convert the input gfa reference to the algorithm's internal representation
 	if (print_graph)

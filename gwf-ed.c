@@ -461,13 +461,13 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	*end_v = *end_off = *end_tb = -1;
 	buf->tmp.n = 0;
 	gwf_set64_clear(buf->ha);				 // hash table $h to avoid visiting a vertex twice
-	for (i = 0, x = 1; i < 32; ++i, x <<= 1) //// x = x << 1 (x = x * 2^1)
+	for (i = 0, x = 1; i < 32; ++i, x <<= 1) //// x left-wise-shifted by 1 bit
 		if (x >= n)							 //// $x is probably used later for the batch method used to speed up alignment -> not relevant for us
 			break;
 	if (i < 4)
 		i = 4;
 	A = kdq_init2(gwf_diag_t, buf->km, i);	  // $A is a queue
-	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// to properly resize the queue
+	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// to properly resize the queue (if not large enough)
 #if 0										  // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a)); //// $a is copied to $A
@@ -497,7 +497,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k;							// wavefront position on the vertex //// for the given diagonal (paper's j)
 		vl = g->len[v];						// $vl is the vertex length
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		i = k + d;							 // query position (paper's "i = Hvk + k")
+		i = k + d;							 // query position //// (paper's "i = Hvk + k")
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -600,7 +600,7 @@ static void gwf_traceback(gwf_edbuf_t *buf, int32_t end_v, int32_t end_tb, gwf_p
 //// ALGORITHM CORE WRAPPER
 int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
 {
-	int32_t s = 0, n_a = 1, end_tb; //// $s: alignment cost, $n_a: number of outgoing arcs, $end_tb: end traceback
+	int32_t s = 0, n_a = 1, end_tb; //// $s: edit distance, $n_a: number of diagonals on which WF can be updated, $end_tb: end traceback
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
 
@@ -618,7 +618,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
-		++s; //// increase alignment cost
+		++s; //// increase edit distance (alignment cost)
 #ifdef GWF_DEBUG
 		printf("[%s] dist=%d, n=%d, n_intv=%ld, n_tb=%ld\n", __func__, s, n_a, buf.intv.n, buf.t.n);
 #endif
