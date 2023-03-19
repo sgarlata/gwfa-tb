@@ -1,5 +1,5 @@
 CC=			gcc
-CFLAGS=		-g -Wall -O2
+CFLAGS=		-g -Wall -O0
 CPPFLAGS=	-DGWF_DEBUG
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o

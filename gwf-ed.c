@@ -304,7 +304,7 @@ typedef struct
 	gwf_map64_t *ht;	  // hash table for traceback
 	gwf_intv_v intv;	  //// dynamic array of diagonal intervals
 	gwf_intv_v tmp, swap; //// same as above, used as aux support
-	gwf_diag_v ooo;		  //// "out-of-order", dynamic array of diagonals
+	gwf_diag_v ooo;		  //// "out-of-order", dynamic array of diagonals, used to speed up sorting
 	gwf_trace_v t;		  //// dynamic array of traces
 } gwf_edbuf_t;
 
