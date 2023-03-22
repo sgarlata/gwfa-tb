@@ -345,7 +345,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 {
 	int32_t max_k = (ql - d < vl ? ql - d : vl) - 1; //// max wavefront position = min(query length - diagonal, label length) - 1
 	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
-#if 0 //// unoptimized, but easier to understand
+#if 1 //// unoptimized, but easier to understand
 	// int32_t i = k + d; while (k + 1 < g->len[v] && i + 1 < ql && g->seq[v][k+1] == q[i+1]) ++k, ++i;
 	while (k < max_k && *(ts_ + k) == *(qs_ + k)) //// LCP: extending along exact matches to find the furthest cell
 		++k;
@@ -451,7 +451,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 
 // wfa_extend and wfa_next combined
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
-								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a)
+								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, int32_t ***dp)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -468,10 +468,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		i = 4;
 	A = kdq_init2(gwf_diag_t, buf->km, i);	  // $A is a queue
 	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// to properly resize the queue (if not large enough)
-#if 0										  // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
+#if 1										  // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a)); //// $a is copied to $A
-#else										  // optimized for long vertices.
+#else								 // optimized for long vertices.
 	for (x = 0, i = 1; i <= n; ++i)
 	{
 		if (i == n || a[i].vd != a[i - 1].vd + 1)
@@ -496,8 +496,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		d = (int32_t)t.vd - GWF_DIAG_SHIFT; // diagonal //// vd (uint64_t) structure: higher 32 bits: vertex ID; lower 32 bits: diagonal + GWF_DIAG_SHIFT
 		k = t.k;							// wavefront position on the vertex //// for the given diagonal (paper's j)
 		vl = g->len[v];						// $vl is the vertex length
+
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		i = k + d;							 // query position //// (paper's "i = Hvk + k")
+		i = k + d; // query position //// (paper's "i = Hvk + k")
+
+		for (int l = 0; l <= k; ++l)
+			if (d + l >= 0 && (dp[v][d + l][l] == -1 || dp[v][d + l][l] > s))
+				dp[v][d + l][l] = s;
+
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -508,14 +514,24 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			if (B.n >= 1)
 				push2 = gwf_diag_update(&B.a[B.n - 1], v, d, k + 1, x0 + 2, ooo, t.t);
 			if (push1)
-				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t);
+			{
+				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t); //// diagonal above
+				if (i >= 0 && (dp[v][(k + 1) + (d - 1)][k + 1] == -1 || dp[v][(k + 1) + (d - 1)][k + 1] > s + 1))
+					dp[v][(k + 1) + (d - 1)][k + 1] = s + 1;
+			}
 			if (push2 || push1)
-				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t);
-			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t);
+			{
+				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t); //// current diagonal
+				if (dp[v][(k + 1) + d][k + 1] == -1 || dp[v][(k + 1) + d][k + 1] > s + 1)
+					dp[v][(k + 1) + d][k + 1] = s + 1;
+			}
+			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t); //// diagonal below
+			if (i >= 0 && (dp[v][k + (d + 1)][k] == -1 || dp[v][k + (d + 1)][k] > s + 1))
+				dp[v][k + (d + 1)][k] = s + 1;
 		}
 		else if (i + 1 < ql)
-		{ // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
-			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1;
+		{																				  // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
+			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1; //// $nv: number of v's neighbors
 			gwf_intv_t *p;
 			kv_pushp(gwf_intv_t, buf->km, buf->tmp, &p);
 			p->vd0 = gwf_gen_vd(v, d), p->vd1 = p->vd0 + 1;
@@ -528,23 +544,32 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				int absent;
 				gwf_set64_put(buf->ha, (uint64_t)w << 32 | (i + 1), &absent); // test if ($w,$i) has been visited
 				if (q[i + 1] == g->seq[w][ol])
-				{ // can be extended to the next vertex without a mismatch
-					++n_ext;
+				{			 // can be extended to the next vertex without a mismatch
+					++n_ext; //// EXTENSION
 					if (absent)
 					{
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
+						if (dp[w][i + 1][ol] == -1 || dp[w][i + 1][ol] > s)
+							dp[w][i + 1][ol] = s;
 					}
 				}
-				else if (absent)
+				else if (absent) //// EXPANSION
 				{
-					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw);
-					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw);
+					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's
+					if (dp[w][i][ol] == -1 || dp[w][i][ol] > s + 1)
+						dp[w][i][ol] = s + 1;
+
+					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's
+					if (dp[w][i + 1][ol] == -1 || dp[w][i + 1][ol] > s + 1)
+						dp[w][i + 1][ol] = s + 1;
 				}
 			}
 			if (nv == 0 || n_ext != nv) // add an insertion to the target; this *might* cause a duplicate in corner cases
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
+			if (dp[v][d + 1 + k][k] == -1 || dp[v][d + 1 + k][k] > s + 1) //// probably redundant
+				dp[v][d + 1 + k][k] = s + 1;
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl))
 		{ // i + 1 == ql
@@ -556,6 +581,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		else if (k + 1 < vl)
 		{																   // i + 1 == ql; reaching the end of the query but not the end of the vertex
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
+			if (dp[v][d - k][k + 1] == -1 || dp[v][d + 1 + k][k + 1] > s + 1)
+				dp[v][d - k][k + 1] = s + 1;
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
@@ -567,6 +594,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
 				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
+				if (dp[w][i][ol] == -1 || dp[w][i][ol] > s + 1)
+					dp[w][i][ol] = s + 1;
 			}
 		}
 		else
@@ -603,6 +632,31 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	int32_t s = 0, n_a = 1, end_tb; //// $s: edit distance, $n_a: number of diagonals on which WF can be updated, $end_tb: end traceback
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
+	int32_t ***dp;
+	dp = (int32_t ***)malloc(g->n_vtx * sizeof(int32_t **)); //// dynamic programming matrix
+
+	for (int v = 0; v < g->n_vtx; ++v)
+	{
+		dp[v] = (int **)malloc(ql * sizeof(int32_t *));
+
+		for (int i = 0; i < ql; ++i)
+		{
+			dp[v][i] = (int *)malloc(g->len[v] * sizeof(int32_t));
+
+			for (int j = 0; j < g->len[v]; ++j)
+			{
+				dp[v][i][j] = -1;
+			}
+		}
+	}
+
+	FILE *out = fopen("dp.csv", "w+");
+
+	if (out == NULL)
+	{
+		fprintf(stderr, "Error opening DP file\n");
+		return 1;
+	}
 
 	memset(&buf, 0, sizeof(buf)); //// buffer initialization
 	buf.km = km;				  //// memory chunk, see "kalloc.c"
@@ -615,7 +669,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
 	while (n_a > 0)
 	{
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, dp);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
 		++s; //// increase edit distance (alignment cost)
@@ -631,6 +685,49 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.tmp.a);
 	kfree(km, buf.swap.a);
 	kfree(km, buf.t.a);
+
+	fprintf(out, ",");
+
+	for (int v = 0; v < g->n_vtx; ++v)
+	{
+		for (int l = 0; l < g->len[v]; ++l)
+		{
+			fprintf(out, "%c,", g->seq[v][l]);
+		}
+		fprintf(out, ",");
+	}
+	fprintf(out, "\n");
+
+	for (int i = 0; i < ql; ++i)
+	{
+		fprintf(out, "%c,", q[i]);
+		for (int v = 0; v < g->n_vtx; ++v)
+		{
+			for (int j = 0; j < g->len[v]; ++j)
+			{
+				if (0 <= dp[v][i][j] && dp[v][i][j] <= s)
+					fprintf(out, "%d,", dp[v][i][j]);
+				else
+					fprintf(out, ",");
+			}
+			fprintf(out, ",");
+		}
+		if (i < ql - 1)
+			fprintf(out, "\n");
+	}
+
+	//// FREE THE DP MATRIX
+	for (int v = 0; v < g->n_vtx; ++v)
+	{
+		for (int i = 0; i < ql; ++i)
+		{
+			free(dp[v][i]);
+		}
+		free(dp[v]);
+	}
+	free(dp);
+	fclose(out);
+
 	path->s = path->end_v >= 0 ? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
