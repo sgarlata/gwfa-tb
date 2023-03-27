@@ -145,15 +145,15 @@ KRADIX_SORT_INIT(gwf_ed, gwf_diag_t, ed_key, 8)
 KDQ_INIT(gwf_diag_t)
 
 /*
- * CIGAR
+ * DP & CIGAR MATRIX CELL TYPE
  */
+
 typedef struct gwf_cigar_t
 {
+	int32_t s;
 	char *str;
-	int32_t len;
+	int32_t str_len;
 } gwf_cigar_t;
-
-KDQ_INIT(gwf_cigar_t);
 
 void gwf_ed_print_diag(size_t n, gwf_diag_t *a) // for debugging only
 {
@@ -356,7 +356,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 {
 	int32_t max_k = (ql - d < vl ? ql - d : vl) - 1; //// max wavefront position = min(query length - diagonal, label length) - 1
 	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
-#if 0 //// unoptimized, but easier to understand
+#if 1 //// unoptimized, but easier to understand
 	// int32_t i = k + d; while (k + 1 < g->len[v] && i + 1 < ql && g->seq[v][k+1] == q[i+1]) ++k, ++i;
 	while (k < max_k && *(ts_ + k) == *(qs_ + k)) //// LCP: extending along exact matches to find the furthest cell
 		++k;
@@ -460,9 +460,31 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	B->n += m;
 }
 
+//// print cigar string
+void gwf_cigar(char *cig, int32_t l)
+{
+	fprintf(stdout, "CIGAR:\t");
+	for (int32_t i = 0; i < l; ++i)
+	{
+		int32_t j = i;
+		while ((j < l - 1) && cig[j] == cig[j + 1])
+			++j;
+
+		if (j == i)
+			fprintf(stdout, "%c", cig[i]);
+		else
+		{
+			fprintf(stdout, "%d%c", j - i + 1, cig[i]);
+			i = j;
+		}
+		// fprintf(stdout, "%c", cig[i]);
+	}
+	fprintf(stdout, "\n");
+}
+
 // wfa_extend and wfa_next combined
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
-								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, int32_t ***dp, kdq_t(gwf_cigar_t) * cq)
+								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, gwf_cigar_t ***dp)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -501,7 +523,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		gwf_diag_t t;				 //// single diagonal
 		uint32_t x0;				 //// anti diagonal
 		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
-		gwf_cigar_t cig;
+		int32_t r, c;				 //// row and column indices
+		int32_t prev_k;				 //// previous offset
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -509,17 +532,47 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k;							// wavefront position on the vertex //// for the given diagonal (paper's j)
 		vl = g->len[v];						// $vl is the vertex length
 
+		prev_k = k;
+
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
 		i = k + d; // query position //// DP row (paper's "i = Hvk + k")
 
-		for (int l = 0; l <= k; ++l) //// along the diagonal to extend
+		for (int32_t l = prev_k; l <= k; ++l) //// along the previous cells of the diagonal to extend
 		{
-			if (d + l >= 0 && (dp[v][d + l][l] == -1 || dp[v][d + l][l] > s))
+			r = d + l;
+			c = l;
+			if (r >= 0) //// within bounds ($c is guaranteed to always be non-negative)
 			{
-				dp[v][d + l][l] = s;			   //// EXTENSION
-				cig = *kdq_shift(gwf_cigar_t, cq); //// pop the cigar currently at the head
-				cig.str[cig.len++] = 'M';		   //// mark the match and increase length
-				kdq_unshift(gwf_cigar_t, cq, cig); //// push the updated cigar back to the head
+				//// EXTENSION
+				if (v == 0 && r == 0 && c == 0 && dp[v][r][c].s == -1) //// global initial cell([0][0] of v0): done only once at the beginning
+				{
+					dp[v][r][c].s = s;
+					dp[v][r][c].str = (char *)malloc(sizeof(char));
+					dp[v][r][c].str[0] = 'M';
+					dp[v][r][c].str_len = 1;
+				}
+				else //// any other cell
+				{
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = s;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'M'; //// match
+					}
+					else if (dp[v][r][c].s > s) //// update with better score
+					{
+						dp[v][r][c].s = s;
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
+					}
+				}
 			}
 		}
 
@@ -535,32 +588,83 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			if (push1)
 			{
 				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t); //// diagonal above
-				if (i >= 0 && (dp[v][(k + 1) + (d - 1)][k + 1] == -1 || dp[v][(k + 1) + (d - 1)][k + 1] > s + 1))
+				r = k + d;
+				c = k + 1;
+				if (r >= 0)
 				{
-					dp[v][(k + 1) + (d - 1)][k + 1] = s + 1;
-					cig = kdq_at(cq, 0);			   //// get a copy of the cigar currently at the head
-					cig.str[cig.len++] = 'D';		   //// mark the deletion and increase length
-					kdq_unshift(gwf_cigar_t, cq, cig); //// add the "forked" cigar to the head
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+					}
+					else if (dp[v][r][c].s > s + 1) //// update with better score
+					{
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+					}
 				}
 			}
 			if (push2 || push1)
 			{
 				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t); //// current diagonal
-				if (dp[v][(k + 1) + d][k + 1] == -1 || dp[v][(k + 1) + d][k + 1] > s + 1)
+				r = k + d + 1;
+				c = k + 1;
+				if (r >= 0)
 				{
-					dp[v][(k + 1) + d][k + 1] = s + 1;
-					cig = *kdq_shift(gwf_cigar_t, cq); //// pop the cigar currently at the head
-					cig.str[cig.len++] = 'X';		   //// mark the mismatch and increase length
-					kdq_unshift(gwf_cigar_t, cq, cig); //// push the updated cigar back to the head
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
+					}
+					else if (dp[v][r][c].s > s + 1) //// update with better score
+					{
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
+					}
 				}
 			}
 			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t); //// diagonal below
-			if (i >= 0 && (dp[v][k + (d + 1)][k] == -1 || dp[v][k + (d + 1)][k] > s + 1))
+			r = k + d + 1;
+			c = k;
+			if (r >= 0)
 			{
-				dp[v][k + (d + 1)][k] = s + 1;
-				cig = kdq_at(cq, 0);			   //// get a copy of the cigar currently at the head
-				cig.str[cig.len++] = 'I';		   //// mark the insertion and increase length
-				kdq_unshift(gwf_cigar_t, cq, cig); //// add the "forked" cigar to the head
+				if (dp[v][r][c].s == -1) //// not considered yet
+				{
+					dp[v][r][c].s = s + 1;
+					dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+					for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+						dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+					dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+					dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+				}
+				else if (dp[v][r][c].s > s + 1) //// update with better score
+				{
+					free(dp[v][r][c].str); //// delete old string
+					dp[v][r][c].s = s + 1;
+					dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+					for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+						dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+					dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+					dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+				}
 			}
 		}
 		else if (i + 1 < ql)
@@ -585,29 +689,30 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
-						if (dp[w][i + 1][ol] == -1 || dp[w][i + 1][ol] > s)
-							dp[w][i + 1][ol] = s;
+						if (dp[w][i + 1][ol].s == -1 || dp[w][i + 1][ol].s > s)
+							dp[w][i + 1][ol].s = s;
 					}
 				}
 				else if (absent) //// EXPANSION
 				{
 					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's
-					if (dp[w][i][ol] == -1 || dp[w][i][ol] > s + 1)
-						dp[w][i][ol] = s + 1;
+					if (dp[w][i][ol].s == -1 || dp[w][i][ol].s > s + 1)
+						dp[w][i][ol].s = s + 1;
 
 					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's
-					if (dp[w][i + 1][ol] == -1 || dp[w][i + 1][ol] > s + 1)
-						dp[w][i + 1][ol] = s + 1;
+					if (dp[w][i + 1][ol].s == -1 || dp[w][i + 1][ol].s > s + 1)
+						dp[w][i + 1][ol].s = s + 1;
 				}
 			}
 			if (nv == 0 || n_ext != nv) // add an insertion to the target; this *might* cause a duplicate in corner cases
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
-			if (dp[v][d + 1 + k][k] == -1 || dp[v][d + 1 + k][k] > s + 1) //// probably redundant
-				dp[v][d + 1 + k][k] = s + 1;
+			if (dp[v][d + 1 + k][k].s == -1 || dp[v][d + 1 + k][k].s > s + 1) //// probably redundant
+				dp[v][d + 1 + k][k].s = s + 1;
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl))
 		{ // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
+			gwf_cigar(dp[v][i][k].str, dp[v][i][k].str_len);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
@@ -615,8 +720,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		else if (k + 1 < vl)
 		{																   // i + 1 == ql; reaching the end of the query but not the end of the vertex
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
-			if (dp[v][d - k][k + 1] == -1 || dp[v][d + 1 + k][k + 1] > s + 1)
-				dp[v][d - k][k + 1] = s + 1;
+			if (dp[v][d - k][k + 1].s == -1 || dp[v][d + 1 + k][k + 1].s > s + 1)
+				dp[v][d - k][k + 1].s = s + 1;
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
@@ -628,8 +733,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
 				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
-				if (dp[w][i][ol] == -1 || dp[w][i][ol] > s + 1)
-					dp[w][i][ol] = s + 1;
+				if (dp[w][i][ol].s == -1 || dp[w][i][ol].s > s + 1)
+					dp[w][i][ol].s = s + 1;
 			}
 		}
 		else
@@ -666,40 +771,31 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	int32_t s = 0, n_a = 1, end_tb; //// $s: edit distance, $n_a: number of diagonals on which WF can be updated, $end_tb: end traceback
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
-	int32_t ***dp;
-	int32_t v_length_sum = 0;
+	gwf_cigar_t ***dp;
 
-	dp = (int32_t ***)malloc(g->n_vtx * sizeof(int32_t **)); //// dynamic programming matrix
+	dp = (gwf_cigar_t ***)malloc(g->n_vtx * sizeof(gwf_cigar_t **)); //// dynamic programming matrix
 
 	//// DP MATRIX ALLOCATION AND INITIALIZATION
-	for (int v = 0; v < g->n_vtx; ++v)
+	for (int32_t v = 0; v < g->n_vtx; ++v)
 	{
-		dp[v] = (int **)malloc(ql * sizeof(int32_t *));
+		dp[v] = (gwf_cigar_t **)malloc(ql * sizeof(gwf_cigar_t *));
 
-		for (int i = 0; i < ql; ++i)
+		for (int32_t i = 0; i < ql; ++i)
 		{
-			dp[v][i] = (int *)malloc(g->len[v] * sizeof(int32_t));
+			dp[v][i] = (gwf_cigar_t *)malloc(g->len[v] * sizeof(gwf_cigar_t));
 
-			for (int j = 0; j < g->len[v]; ++j)
+			for (int32_t j = 0; j < g->len[v]; ++j)
 			{
-				dp[v][i][j] = -1;
+				dp[v][i][j].s = -1;
+				dp[v][i][j].str_len = 0;
 			}
 		}
-
-		v_length_sum += g->len[v]; //// not related to the semantics of this loop, but useful for the CIGAR initialization
 	}
 
-	//// CIGARs QUEUE INITIALIZATION
-	kdq_t(gwf_cigar_t) * cq;
-	cq = kdq_init(gwf_cigar_t, 0);
-	gwf_cigar_t cig; //// empty first cigar string
-	cig.str = (char *)malloc((ql + v_length_sum) * sizeof(char));
-	cig.len = 0;
-	kdq_unshift(gwf_cigar_t, cq, cig); //// add the such empty cigar to the head (the cigar at the head at the end will be the final one)
+	FILE *out_dp = fopen("out/dp.csv", "w");
+	FILE *out_cig = fopen("out/cig.csv", "w");
 
-	FILE *out = fopen("out/dp.csv", "w");
-
-	if (out == NULL)
+	if (out_dp == NULL || out_cig == NULL)
 	{
 		fprintf(stderr, "Error opening DP file\n");
 		return 1;
@@ -716,7 +812,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
 	while (n_a > 0)
 	{
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, dp, cq);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, dp);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
 		++s; //// increase edit distance (alignment cost)
@@ -734,59 +830,71 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.t.a);
 
 	//// STORE DP MATRIX TO CSV FILE
-	fprintf(out, ",");
+	fprintf(out_dp, ".,");
 
 	for (int v = 0; v < g->n_vtx; ++v)
 	{
 		for (int l = 0; l < g->len[v]; ++l)
 		{
-			fprintf(out, "%c,", g->seq[v][l]);
+			fprintf(out_dp, "%c,", g->seq[v][l]);
 		}
-		fprintf(out, ",");
+		if (v < g->n_vtx - 1)
+			fprintf(out_dp, ",");
 	}
-	fprintf(out, "\n");
+	fprintf(out_dp, "\n");
 
 	for (int i = 0; i < ql; ++i)
 	{
-		fprintf(out, "%c,", q[i]);
+		fprintf(out_dp, "%c,", q[i]);
 		for (int v = 0; v < g->n_vtx; ++v)
 		{
 			for (int j = 0; j < g->len[v]; ++j)
 			{
-				if (0 <= dp[v][i][j] && dp[v][i][j] <= s)
-					fprintf(out, "%d,", dp[v][i][j]);
+				if (0 <= dp[v][i][j].s && dp[v][i][j].s <= s)
+				{
+					fprintf(out_dp, "%d,", dp[v][i][j].s);
+					for (int32_t y = 0; y < dp[v][i][j].str_len; ++y)
+					{
+						fprintf(out_cig, "%c", dp[v][i][j].str[y]);
+					}
+					fprintf(out_cig, ",");
+				}
 				else
-					fprintf(out, ",");
+				{
+					fprintf(out_dp, ".,");
+					fprintf(out_cig, ".,");
+				}
 			}
-			fprintf(out, ",");
+			if (v < g->n_vtx - 1)
+			{
+				fprintf(out_dp, ",");
+				fprintf(out_cig, ",");
+			}
 		}
 		if (i < ql - 1)
-			fprintf(out, "\n");
+		{
+			fprintf(out_dp, "\n");
+			fprintf(out_cig, "\n");
+		}
 	}
-
-	//// PRINT CIGAR
-	cig = kdq_at(cq, 0);
-	fprintf(stdout, "CIGAR:\t");
-	for (int i = 0; i < cig.len; ++i)
-	{
-		fprintf(stdout, "%c", cig.str[i]);
-	}
-	fprintf(stdout, "\n");
-
-	//// FREE CIGARs QUEUE
-	kdq_destroy(gwf_cigar_t, cq);
 
 	//// FREE DP MATRIX
-	for (int v = 0; v < g->n_vtx; ++v)
+	for (int32_t v = 0; v < g->n_vtx; ++v)
 	{
-		for (int i = 0; i < ql; ++i)
+		for (int32_t i = 0; i < ql; ++i)
 		{
+			/*for (int32_t j = 0; j < g->len[v]; ++j)
+			{
+				if (dp[v][i][j].str != NULL)
+					free(dp[v][i][j].str);
+			}*/
 			free(dp[v][i]);
 		}
 		free(dp[v]);
 	}
 	free(dp);
-	fclose(out);
+	fclose(out_dp);
+	fclose(out_cig);
 
 	path->s = path->end_v >= 0 ? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
