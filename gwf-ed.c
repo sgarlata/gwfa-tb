@@ -544,14 +544,72 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			if (r >= 0 && c >= 0) //// within bounds
 			{
 				//// EXTENSION
-				if (v == 0 && r == 0 && c == 0 && dp[v][r][c].s == -1) //// match at global initial cell([0][0] of v0): done only once at the beginning
+				if (v == 0 && r == 0 && c == 0 && dp[v][r][c].s == -1) //// dp[0][0][0]: first match
 				{
 					dp[v][r][c].s = s;
 					dp[v][r][c].str = (char *)malloc(sizeof(char));
 					dp[v][r][c].str[0] = 'M';
 					dp[v][r][c].str_len = 1;
 				}
-				else if (r > 0 && c > 0) //// any other cell
+				/*else if (v == 0 && r == 0 && c == 1) //// dp[0][0][1]: first deletion
+				{
+					dp[v][r][c].s = s + 1;
+					dp[v][r][c].str = (char *)malloc(sizeof(char));
+					dp[v][r][c].str[0] = 'D';
+					dp[v][r][c].str_len = 1;
+				}
+				else if (v == 0 && r == 1 && c == 0) //// dp[0][1][0]: first insertion
+				{
+					dp[v][r][c].s = s + 1;
+					dp[v][r][c].str = (char *)malloc(sizeof(char));
+					dp[v][r][c].str[0] = 'I';
+					dp[v][r][c].str_len = 1;
+				}*/
+				else if (r == 0 && c > 0) //// first row (deletion)
+				{
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// match
+					}
+					/*else if (dp[v][r][c].s > s) //// update with better score
+					{
+						dp[v][r][c].s = (k == prev_k) ? (s + 1) : s;
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = (k == prev_k) ? 'X' : 'M'; //// (mis)match
+					}*/
+				}
+				else if (r > 0 && c == 0) //// first column (insertion)
+				{
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// match
+					}
+					/*else if (dp[v][r][c].s > s) //// update with better score
+					{
+						dp[v][r][c].s = (k == prev_k) ? (s + 1) : s;
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = (k == prev_k) ? 'X' : 'M'; //// (mis)match
+					}*/
+				}
+				else //// central cells
 				{
 					if (dp[v][r][c].s == -1) //// not considered yet
 					{
@@ -622,12 +680,30 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				{
 					if (dp[v][r][c].s == -1) //// not considered yet
 					{
-						if (r == 0 || c == 0) //// if no prev cell to copy from (initially, v == 0 && r == 0 && c == 0)
+						if (r == 0 && c == 0) //// first mismatch
 						{
 							dp[v][r][c].s = s + 1;
 							dp[v][r][c].str = (char *)malloc(sizeof(char));
 							dp[v][r][c].str[0] = 'X';
 							dp[v][r][c].str_len = 1;
+						}
+						else if (r == 0 && c > 0) //// more deletions in a row
+						{
+							dp[v][r][c].s = s + 1;
+							dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+								dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+							dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+							dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+						}
+						else if (r > 0 && c == 0) //// more insertions in a row
+						{
+							dp[v][r][c].s = s + 1;
+							dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+								dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+							dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+							dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
 						}
 						else //// any other cell
 						{
@@ -963,7 +1039,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.t.a);
 
 	//// STORE DP MATRIX TO CSV FILE
-	fprintf(out_dp, ".,");
+	fprintf(out_dp, "_,");
 
 	for (int v = 0; v < g->n_vtx; ++v)
 	{
@@ -972,7 +1048,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 			fprintf(out_dp, "%c,", g->seq[v][l]);
 		}
 		if (v < g->n_vtx - 1)
-			fprintf(out_dp, ",");
+			fprintf(out_dp, "|,");
 	}
 	fprintf(out_dp, "\n");
 
@@ -994,14 +1070,14 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 				}
 				else
 				{
-					fprintf(out_dp, ".,");
-					fprintf(out_cig, ".,");
+					fprintf(out_dp, "_,");
+					fprintf(out_cig, "_,");
 				}
 			}
 			if (v < g->n_vtx - 1)
 			{
-				fprintf(out_dp, ",");
-				fprintf(out_cig, ",");
+				fprintf(out_dp, "|,");
+				fprintf(out_cig, "|,");
 			}
 		}
 		if (i < ql - 1)
