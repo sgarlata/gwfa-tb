@@ -144,6 +144,17 @@ KRADIX_SORT_INIT(gwf_ed, gwf_diag_t, ed_key, 8)
 
 KDQ_INIT(gwf_diag_t)
 
+/*
+ * DP & CIGAR MATRIX CELL TYPE
+ */
+
+typedef struct gwf_cigar_t
+{
+	int32_t s;
+	char *str;
+	int32_t str_len;
+} gwf_cigar_t;
+
 void gwf_ed_print_diag(size_t n, gwf_diag_t *a) // for debugging only
 {
 	size_t i;
@@ -449,9 +460,31 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	B->n += m;
 }
 
+//// print cigar string
+void gwf_cigar(char *cig, int32_t l)
+{
+	fprintf(stdout, "CIGAR:\t");
+	for (int32_t i = 0; i < l; ++i)
+	{
+		int32_t j = i;
+		while ((j < l - 1) && cig[j] == cig[j + 1])
+			++j;
+
+		if (j == i)
+			fprintf(stdout, "1%c", cig[i]);
+		else
+		{
+			fprintf(stdout, "%d%c", j - i + 1, cig[i]);
+			i = j;
+		}
+		// fprintf(stdout, "%c", cig[i]);
+	}
+	fprintf(stdout, "\n");
+}
+
 // wfa_extend and wfa_next combined
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
-								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, int32_t ***dp)
+								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, gwf_cigar_t ***dp)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -490,6 +523,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		gwf_diag_t t;				 //// single diagonal
 		uint32_t x0;				 //// anti diagonal
 		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
+		int32_t r, c, r1, c1;		 //// row and column indices
+		int32_t prev_k;				 //// previous offset
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -497,121 +532,416 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k;							// wavefront position on the vertex //// for the given diagonal (paper's j)
 		vl = g->len[v];						// $vl is the vertex length
 
+		prev_k = k;
+
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
 		i = k + d; // query position //// DP row (paper's "i = Hvk + k")
 
-		for (int l = 0; l <= k; ++l) //// along the diagonal to extend
+		for (int32_t l = prev_k; l <= k; ++l) //// along the previous cells of the diagonal to extend
 		{
-			if (d + l >= 0 && (dp[v][d + l][l] == -1 || dp[v][d + l][l] > s))
-				dp[v][d + l][l] = s;
-
-			x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
-			//// EXPANSION
-			if (k + 1 < vl && i + 1 < ql)
-			{ // the most common case: the wavefront is in the middle
-				int32_t push1 = 1, push2 = 1;
-				if (B.n >= 2)
-					push1 = gwf_diag_update(&B.a[B.n - 2], v, d - 1, k + 1, x0 + 1, ooo, t.t);
-				if (B.n >= 1)
-					push2 = gwf_diag_update(&B.a[B.n - 1], v, d, k + 1, x0 + 2, ooo, t.t);
-				if (push1)
+			r = d + l;
+			c = l;
+			if (r >= 0 && c >= 0) //// within bounds
+			{
+				//// EXTENSION
+				if (v == 0 && r == 0 && c == 0 && dp[v][r][c].s == -1) //// dp[0][0][0]: first match
 				{
-					gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t); //// diagonal above
-					if (i >= 0 && (dp[v][(k + 1) + (d - 1)][k + 1] == -1 || dp[v][(k + 1) + (d - 1)][k + 1] > s + 1))
-						dp[v][(k + 1) + (d - 1)][k + 1] = s + 1;
+					dp[v][r][c].s = s;
+					dp[v][r][c].str = (char *)malloc(sizeof(char));
+					dp[v][r][c].str[0] = '=';
+					dp[v][r][c].str_len = 1;
 				}
-				if (push2 || push1)
+				else if (r == 0 && c > 0) //// first row (deletion)
 				{
-					gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t); //// current diagonal
-					if (dp[v][(k + 1) + d][k + 1] == -1 || dp[v][(k + 1) + d][k + 1] > s + 1)
-						dp[v][(k + 1) + d][k + 1] = s + 1;
-				}
-				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t); //// diagonal below
-				if (i >= 0 && (dp[v][k + (d + 1)][k] == -1 || dp[v][k + (d + 1)][k] > s + 1))
-					dp[v][k + (d + 1)][k] = s + 1;
-			}
-			else if (i + 1 < ql)
-			{																				  // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
-				int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1; //// $nv: number of v's neighbors
-				gwf_intv_t *p;
-				kv_pushp(gwf_intv_t, buf->km, buf->tmp, &p);
-				p->vd0 = gwf_gen_vd(v, d), p->vd1 = p->vd0 + 1;
-				if (traceback)
-					tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
-				for (j = 0; j < nv; ++j)
-				{											 // traverse $v's neighbors
-					uint32_t w = (uint32_t)g->arc[ov + j].a; // $w is next to $v
-					int32_t ol = g->arc[ov + j].o;
-					int absent;
-					gwf_set64_put(buf->ha, (uint64_t)w << 32 | (i + 1), &absent); // test if ($w,$i) has been visited
-					if (q[i + 1] == g->seq[w][ol])
-					{			 // can be extended to the next vertex without a mismatch
-						++n_ext; //// EXTENSION
-						if (absent)
-						{
-							gwf_diag_t *p;
-							p = kdq_pushp(gwf_diag_t, A);
-							p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
-							if (dp[w][i + 1][ol] == -1 || dp[w][i + 1][ol] > s)
-								dp[w][i + 1][ol] = s;
-						}
-					}
-					else if (absent) //// EXPANSION
+					if (dp[v][r][c].s == -1) //// not considered yet
 					{
-						gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's
-						if (dp[w][i][ol] == -1 || dp[w][i][ol] > s + 1)
-							dp[w][i][ol] = s + 1;
-
-						gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's
-						if (dp[w][i + 1][ol] == -1 || dp[w][i + 1][ol] > s + 1)
-							dp[w][i + 1][ol] = s + 1;
+						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
 					}
 				}
-				if (nv == 0 || n_ext != nv) // add an insertion to the target; this *might* cause a duplicate in corner cases
-					gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
-				if (dp[v][d + 1 + k][k] == -1 || dp[v][d + 1 + k][k] > s + 1) //// probably redundant
-					dp[v][d + 1 + k][k] = s + 1;
-			}
-			else if (v1 < 0 || (v == v1 && k + 1 == vl))
-			{ // i + 1 == ql
-				*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
-				kdq_destroy(gwf_diag_t, A);
-				kfree(buf->km, B.a);
-				return 0;
-			}
-			else if (k + 1 < vl)
-			{																   // i + 1 == ql; reaching the end of the query but not the end of the vertex
-				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
-				if (dp[v][d - k][k + 1] == -1 || dp[v][d + 1 + k][k + 1] > s + 1)
-					dp[v][d - k][k + 1] = s + 1;
-			}
-			else if (v != v1)
-			{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
-				int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, tw = -1;
-				if (traceback)
-					tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
-				for (j = 0; j < nv; ++j)
+				else if (r > 0 && c == 0) //// first column (insertion)
 				{
-					uint32_t w = (uint32_t)g->arc[ov + j].a;
-					int32_t ol = g->arc[ov + j].o;
-					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
-					if (dp[w][i][ol] == -1 || dp[w][i][ol] > s + 1)
-						dp[w][i][ol] = s + 1;
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+					}
+				}
+				else if (r > 0 && c > 0) //// central cells
+				{
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = (prev_k < c) ? dp[v][r - 1][c - 1].s : dp[v][r - 1][c - 1].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = (prev_k < c) ? '=' : 'X'; //// match or miss
+					}
+					else if (dp[v][r - 1][c - 1].s > -1) //// update score giving precedence to M wrt I and D
+					{
+						free(dp[v][r][c].str);															  //// delete old string
+						dp[v][r][c].s = (prev_k < c) ? dp[v][r - 1][c - 1].s : dp[v][r - 1][c - 1].s + 1; //// match or miss
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = (prev_k < c) ? '=' : 'X'; //// match or miss
+					}
 				}
 			}
-			else
-				assert(0); // should never come here
 		}
 
-		kdq_destroy(gwf_diag_t, A);
-		*n_a_ = n = B.n, b = B.a; //// b <- B
+		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
+		//// EXPANSION
+		if (k + 1 < vl && i + 1 < ql)
+		{ // the most common case: the wavefront is in the middle
+			int32_t push1 = 1, push2 = 1;
+			if (B.n >= 2)
+				push1 = gwf_diag_update(&B.a[B.n - 2], v, d - 1, k + 1, x0 + 1, ooo, t.t);
+			if (B.n >= 1)
+				push2 = gwf_diag_update(&B.a[B.n - 1], v, d, k + 1, x0 + 2, ooo, t.t);
+			if (push1)
+			{
+				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t); //// diagonal above
+				r = k + d;
+				c = k + 1;
+				if (r >= 0 && c > 0) //// within bounds
+				{
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+					}
+					else if (dp[v][r][c].s > dp[v][r][c - 1].s + 1) //// update with better score
+					{
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+					}
+				}
+			}
+			if (push2 || push1)
+			{
+				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t); //// current diagonal
+				r = k + d + 1;
+				c = k + 1;
+				if (r >= 0 && c >= 0) //// within bounds
+				{
+					if (dp[v][r][c].s == -1) //// not considered yet
+					{
+						if (r == 0 && c == 0) //// first mismatch
+						{
+							dp[v][r][c].s = s + 1;
+							dp[v][r][c].str = (char *)malloc(sizeof(char));
+							dp[v][r][c].str[0] = 'X';
+							dp[v][r][c].str_len = 1;
+						}
+						else if (r == 0 && c > 0) //// more deletions
+						{
+							dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+							dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+								dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+							dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+							dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+						}
+						else if (r > 0 && c == 0) //// more insertions
+						{
+							dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+							dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+								dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+							dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+							dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+						}
+						else if (r > 0 && c > 0) //// any other cell
+						{
+							dp[v][r][c].s = dp[v][r - 1][c - 1].s + 1;
+							dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+								dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+							dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+							dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
+						}
+					}
+					else if (dp[v][r][c].s > dp[v][r - 1][c - 1].s + 1) //// update with better score
+					{
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].s = dp[v][r - 1][c - 1].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
+					}
+				}
+			}
+			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t); //// diagonal below
+			r = k + d + 1;
+			c = k;
+			if (r > 0 && c >= 0) //// within bounds
+			{
+				if (dp[v][r][c].s == -1) //// not considered yet
+				{
+					dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+					dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+					for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+						dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+					dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+					dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+				}
+				else if (dp[v][r][c].s > dp[v][r - 1][c].s + 1) //// update with better score
+				{
+					free(dp[v][r][c].str); //// delete old string
+					dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+					dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+					for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+						dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+					dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+					dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+				}
+			}
+		}
+		else if (i + 1 < ql)
+		{																				  // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
+			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1; //// $nv: number of v's neighbors
+			gwf_intv_t *p;
+			kv_pushp(gwf_intv_t, buf->km, buf->tmp, &p);
+			p->vd0 = gwf_gen_vd(v, d), p->vd1 = p->vd0 + 1;
+			if (traceback)
+				tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
+			for (j = 0; j < nv; ++j)
+			{											 // traverse $v's neighbors
+				uint32_t w = (uint32_t)g->arc[ov + j].a; // $w is next to $v
+				int32_t ol = g->arc[ov + j].o;
+				int absent;
+				gwf_set64_put(buf->ha, (uint64_t)w << 32 | (i + 1), &absent); // test if ($w,$i) has been visited
+				if (q[i + 1] == g->seq[w][ol])								  // can be extended to the next vertex without a mismatch
+				{
+					++n_ext; //// EXTENSION
+					if (absent)
+					{
+						gwf_diag_t *p;
+						p = kdq_pushp(gwf_diag_t, A);
+						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
+						r = i + 1;
+						c = ol;
+						r1 = r - 1;
+						c1 = g->len[v] - 1;
+						if (r1 >= 0 && c1 >= 0) //// within bounds
+						{
+							if (dp[w][r][c].s == -1)
+							{
+								dp[w][r][c].s = dp[v][r1][c1].s;
+								dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
+								for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
+									dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
+								dp[w][r][c].str_len = dp[v][r1][c1].str_len;
+								dp[w][r][c].str[dp[w][r][c].str_len++] = '='; //// match
+							}
+							else if (dp[w][r][c].s > dp[v][r1][c1].s)
+							{
+								dp[w][r][c].s = dp[v][r1][c1].s;
+								free(dp[w][r][c].str); //// delete old string
+								dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
+								for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
+									dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
+								dp[w][r][c].str_len = dp[v][r1][c1].str_len;
+								dp[w][r][c].str[dp[w][r][c].str_len++] = 'X'; //// mismatch
+							}
+						}
+					}
+				}
+				else if (absent) //// EXPANSION
+				{
+					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's
+					r = i;
+					c = ol;
+					r1 = r;
+					c1 = g->len[v] - 1;
+					if (r1 >= 0 && c1 >= 0) //// within bounds
+					{
+						if (dp[w][r][c].s == -1)
+						{
+							dp[w][r][c].s = dp[v][r1][c1].s + 1;
+							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
+								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
+							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
+							dp[w][r][c].str[dp[w][r][c].str_len++] = 'D'; //// deletion
+						}
+						else if (dp[w][r][c].s > dp[v][r1][c1].s + 1)
+						{
+							free(dp[w][r][c].str); //// delete old string
+							dp[w][r][c].s = dp[v][r1][c1].s + 1;
+							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
+								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
+							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
+							dp[w][r][c].str[dp[w][r][c].str_len++] = 'D'; //// deletion
+						}
+					}
 
-		if (do_dedup)
-			*n_a_ = n = gwf_dedup(buf, n, b);
-		if (max_lag > 0)
-			*n_a_ = n = gwf_prune(n, b, max_lag);
-		return b;
+					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's
+					r = i + 1;
+					c = ol;
+					r1 = r - 1;
+					c1 = g->len[v] - 1;
+
+					if (r1 >= 0 && c1 >= 0) //// within bounds
+					{
+						if (dp[w][r][c].s == -1)
+						{
+							dp[w][r][c].s = dp[v][r1][c1].s + 1;
+							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
+								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
+							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
+							dp[w][r][c].str[dp[w][r][c].str_len++] = 'X'; //// mismatch
+						}
+						else if (dp[w][r][c].s > dp[v][r1][c1].s + 1)
+						{
+							free(dp[w][r][c].str); //// delete old string
+							dp[w][r][c].s = dp[v][r1][c1].s + 1;
+							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
+							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
+								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
+							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
+							dp[w][r][c].str[dp[w][r][c].str_len++] = 'X'; //// mismatch
+						}
+					}
+				}
+			}
+			if (nv == 0 || n_ext != nv)
+			{ // add an insertion to the target; this *might* cause a duplicate in corner cases
+				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
+				r = d + 1 + k;
+				c = k;
+				if (r > 0 && c >= 0)
+				{
+					if (dp[v][r][c].s == -1)
+					{
+						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+					}
+					else if (dp[v][r][c].s > dp[v][r - 1][c].s + 1)
+					{
+						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
+							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
+						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
+						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+					}
+				}
+			}
+		}
+		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
+		{											 // i + 1 == ql
+			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
+			gwf_cigar(dp[v][i][k].str, dp[v][i][k].str_len);
+			kdq_destroy(gwf_diag_t, A);
+			kfree(buf->km, B.a);
+			return 0;
+		}
+		else if (k + 1 < vl)
+		{																   // i + 1 == ql; reaching the end of the query but not the end of the vertex
+			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
+			r = d + k;
+			c = k + 1;
+			if (r >= 0 && c > 0)
+			{
+				if (dp[v][r][c].s == -1)
+				{
+					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+					dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+					for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+						dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+					dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+					dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+				}
+				else if (dp[v][r][c].s > dp[v][r][c - 1].s + 1)
+				{
+					free(dp[v][r][c].str); //// delete old string
+					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+					dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+					for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+						dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
+					dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
+					dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+				}
+			}
+		}
+		else if (v != v1)
+		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
+			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, tw = -1;
+			if (traceback)
+				tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
+			for (j = 0; j < nv; ++j)
+			{
+				uint32_t w = (uint32_t)g->arc[ov + j].a;
+				int32_t ol = g->arc[ov + j].o;
+				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
+				r = i;
+				c = ol;
+				if (r >= 0 && c > 0)
+				{
+					if (dp[w][r][c].s == -1)
+					{
+						dp[w][r][c].s = dp[v][r][c - 1].s + 1;
+						dp[w][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[w][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[w][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[w][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+					}
+					else if (dp[w][r][c].s > dp[v][r][c - 1].s + 1)
+					{
+						free(dp[w][r][c].str); //// delete old string
+						dp[w][r][c].s = dp[v][r][c - 1].s + 1;
+						dp[w][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
+						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
+							dp[w][r][c].str[i] = dp[v][r][c - 1].str[i];
+						dp[w][r][c].str_len = dp[v][r][c - 1].str_len;
+						dp[w][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+					}
+				}
+			}
+		}
+		else
+			assert(0); // should never come here
 	}
+
+	kdq_destroy(gwf_diag_t, A);
+	*n_a_ = n = B.n, b = B.a; //// b <- B
+
+	if (do_dedup)
+		*n_a_ = n = gwf_dedup(buf, n, b);
+	if (max_lag > 0)
+		*n_a_ = n = gwf_prune(n, b, max_lag);
+	return b;
 }
 
 static void gwf_traceback(gwf_edbuf_t *buf, int32_t end_v, int32_t end_tb, gwf_path_t *path)
@@ -635,28 +965,31 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	int32_t s = 0, n_a = 1, end_tb; //// $s: edit distance, $n_a: number of diagonals on which WF can be updated, $end_tb: end traceback
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
-	int32_t ***dp;
-	dp = (int32_t ***)malloc(g->n_vtx * sizeof(int32_t **)); //// dynamic programming matrix
+	gwf_cigar_t ***dp;
+
+	dp = (gwf_cigar_t ***)malloc(g->n_vtx * sizeof(gwf_cigar_t **)); //// dynamic programming matrix
 
 	//// DP MATRIX ALLOCATION AND INITIALIZATION
-	for (int v = 0; v < g->n_vtx; ++v)
+	for (int32_t v = 0; v < g->n_vtx; ++v)
 	{
-		dp[v] = (int **)malloc(ql * sizeof(int32_t *));
+		dp[v] = (gwf_cigar_t **)malloc(ql * sizeof(gwf_cigar_t *));
 
-		for (int i = 0; i < ql; ++i)
+		for (int32_t i = 0; i < ql; ++i)
 		{
-			dp[v][i] = (int *)malloc(g->len[v] * sizeof(int32_t));
+			dp[v][i] = (gwf_cigar_t *)malloc(g->len[v] * sizeof(gwf_cigar_t));
 
-			for (int j = 0; j < g->len[v]; ++j)
+			for (int32_t j = 0; j < g->len[v]; ++j)
 			{
-				dp[v][i][j] = -1;
+				dp[v][i][j].s = -1;
+				dp[v][i][j].str_len = 0;
 			}
 		}
 	}
 
-	FILE *out = fopen("out/dp.csv", "w");
+	FILE *out_dp = fopen("out/dp.csv", "w");
+	FILE *out_cig = fopen("out/cig.csv", "w");
 
-	if (out == NULL)
+	if (out_dp == NULL || out_cig == NULL)
 	{
 		fprintf(stderr, "Error opening DP file\n");
 		return 1;
@@ -691,47 +1024,73 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.t.a);
 
 	//// STORE DP MATRIX TO CSV FILE
-	fprintf(out, ",");
+	fprintf(out_dp, "_,");
 
 	for (int v = 0; v < g->n_vtx; ++v)
 	{
 		for (int l = 0; l < g->len[v]; ++l)
 		{
-			fprintf(out, "%c,", g->seq[v][l]);
+			fprintf(out_dp, "%c,", g->seq[v][l]);
 		}
-		fprintf(out, ",");
+		if (v < g->n_vtx - 1)
+			fprintf(out_dp, "|,");
 	}
-	fprintf(out, "\n");
+	fprintf(out_dp, "\n");
 
 	for (int i = 0; i < ql; ++i)
 	{
-		fprintf(out, "%c,", q[i]);
+		fprintf(out_dp, "%c,", q[i]);
 		for (int v = 0; v < g->n_vtx; ++v)
 		{
 			for (int j = 0; j < g->len[v]; ++j)
 			{
-				if (0 <= dp[v][i][j] && dp[v][i][j] <= s)
-					fprintf(out, "%d,", dp[v][i][j]);
+				if (0 <= dp[v][i][j].s && dp[v][i][j].s <= s)
+				{
+					fprintf(out_dp, "%d,", dp[v][i][j].s);
+					for (int32_t y = 0; y < dp[v][i][j].str_len; ++y)
+					{
+						fprintf(out_cig, "%c", dp[v][i][j].str[y]);
+					}
+					fprintf(out_cig, ",");
+				}
 				else
-					fprintf(out, ",");
+				{
+					fprintf(out_dp, "_,");
+					fprintf(out_cig, "_,");
+				}
 			}
-			fprintf(out, ",");
+			if (v < g->n_vtx - 1)
+			{
+				fprintf(out_dp, "|,");
+				fprintf(out_cig, "|,");
+			}
 		}
 		if (i < ql - 1)
-			fprintf(out, "\n");
+		{
+			fprintf(out_dp, "\n");
+			fprintf(out_cig, "\n");
+		}
 	}
 
-	//// FREE THE DP MATRIX
-	for (int v = 0; v < g->n_vtx; ++v)
+	//// FREE DP MATRIX
+	for (int32_t v = 0; v < g->n_vtx; ++v)
 	{
-		for (int i = 0; i < ql; ++i)
+		for (int32_t i = 0; i < ql; ++i)
 		{
+			for (int32_t j = 0; j < g->len[v]; ++j)
+			{
+				if (dp[v][i][j].s != -1)
+				{
+					free(dp[v][i][j].str);
+				}
+			}
 			free(dp[v][i]);
 		}
 		free(dp[v]);
 	}
 	free(dp);
-	fclose(out);
+	fclose(out_dp);
+	fclose(out_cig);
 
 	path->s = path->end_v >= 0 ? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
