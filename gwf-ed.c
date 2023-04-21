@@ -150,9 +150,10 @@ KDQ_INIT(gwf_diag_t)
 
 typedef struct gwf_cigar_t
 {
-	int32_t s;
-	char *str;
-	int32_t str_len;
+	int16_t s;	 //// edit distance
+	char *op;	 //// operations' array
+	int16_t *bl; //// base lengths' array
+	int16_t l;	 ////  array length
 } gwf_cigar_t;
 
 void gwf_ed_print_diag(size_t n, gwf_diag_t *a) // for debugging only
@@ -173,7 +174,7 @@ static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d,
 	p->vd = gwf_gen_vd(v, d), p->k = k, p->xo = x << 1 | ooo, p->t = t;
 }
 
-// determine the wavefront on diagonal (v,d)
+// determine the wavefront on diagonal (v,d) //// if the passed $k is larger than the original diagonal's wavefront (p->k), then the latter is updated to the former
 static inline int32_t gwf_diag_update(gwf_diag_t *p, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t)
 {
 	uint64_t vd = gwf_gen_vd(v, d);
@@ -460,24 +461,190 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	B->n += m;
 }
 
+//// DP matrix extension
+void dp_extend(gwf_cigar_t ***dp, int32_t v, int32_t d, int32_t prev_k, int32_t k)
+{
+	int32_t r, c;
+
+	for (int32_t l = prev_k; l <= k; ++l) //// along the previous cells of the diagonal to extend
+	{
+		r = d + l;
+		c = l;
+		if (r >= 0 && c >= 0) //// within bounds
+		{
+
+			if (v == 0 && r == 0 && c == 0 && dp[v][r][c].s == -1) //// dp[0][0][0]: first match
+			{
+				dp[v][r][c].s = 0;
+				dp[v][r][c].op = (char *)malloc(sizeof(char));
+				dp[v][r][c].bl = (int16_t *)malloc(sizeof(int16_t));
+				dp[v][r][c].op[0] = '=';
+				dp[v][r][c].bl[0] = 1;
+				dp[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
+			}
+			else if (r == 0 && c > 0) //// first row (deletion)
+			{
+				if (dp[v][r][c].s == -1) //// not considered yet
+				{
+					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+
+					if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
+					{
+						dp[v][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r][c - 1].op[i];
+						dp[v][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = 'D';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
+				}
+			}
+			else if (r > 0 && c == 0) //// first column (insertion)
+			{
+				if (dp[v][r][c].s == -1) //// not considered yet
+				{
+					dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+
+					if (dp[v][r - 1][c].op[dp[v][r - 1][c].l - 1] == 'I') //// if already coming from an insertion
+					{
+						dp[v][r][c].l = dp[v][r - 1][c].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r - 1][c].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int16_t i = 0; i < dp[v][r - 1][c].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r - 1][c].op[i];
+						dp[v][r][c].bl[i] = dp[v][r - 1][c].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r - 1][c].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = 'I';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
+				}
+			}
+			else if (r > 0 && c > 0 && dp[v][r - 1][c - 1].s > -1) //// central cells
+			{
+				if ((prev_k < c) && (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r - 1][c - 1].s))
+				{ //// match
+
+					if (dp[v][r][c].s > dp[v][r - 1][c - 1].s) //// update
+					{
+						free(dp[v][r][c].op);
+						free(dp[v][r][c].bl);
+					}
+
+					dp[v][r][c].s = dp[v][r - 1][c - 1].s;
+
+					if (dp[v][r - 1][c - 1].op[dp[v][r - 1][c - 1].l - 1] == '=') //// if already coming from a match
+					{
+						dp[v][r][c].l = dp[v][r - 1][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r - 1][c - 1].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int32_t i = 0; i < dp[v][r - 1][c - 1].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r - 1][c - 1].op[i];
+						dp[v][r][c].bl[i] = dp[v][r - 1][c - 1].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r - 1][c - 1].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = '=';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
+				}
+				else if ((prev_k == c) && (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r - 1][c - 1].s + 1))
+				{												   //// mismatch
+					if (dp[v][r][c].s > dp[v][r - 1][c - 1].s + 1) //// update
+					{
+						free(dp[v][r][c].op);
+						free(dp[v][r][c].bl);
+					}
+
+					if (dp[v][r - 1][c - 1].op[dp[v][r - 1][c - 1].l - 1] == 'X') //// if already coming from a mismatch
+					{
+						dp[v][r][c].l = dp[v][r - 1][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r - 1][c - 1].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int32_t i = 0; i < dp[v][r - 1][c - 1].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r - 1][c - 1].op[i];
+						dp[v][r][c].bl[i] = dp[v][r - 1][c - 1].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r - 1][c - 1].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = 'X';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
+				}
+			}
+		}
+	}
+}
+
 //// print cigar string
-void gwf_cigar(char *cig, int32_t l)
+void gwf_cigar(gwf_cigar_t cig)
 {
 	fprintf(stdout, "CIGAR:\t");
-	for (int32_t i = 0; i < l; ++i)
+	for (int32_t i = 0; i < cig.l; ++i)
 	{
-		int32_t j = i;
-		while ((j < l - 1) && cig[j] == cig[j + 1])
-			++j;
-
-		if (j == i)
-			fprintf(stdout, "1%c", cig[i]);
-		else
-		{
-			fprintf(stdout, "%d%c", j - i + 1, cig[i]);
-			i = j;
-		}
-		// fprintf(stdout, "%c", cig[i]);
+		fprintf(stdout, "%d%c", cig.bl[i], cig.op[i]);
 	}
 	fprintf(stdout, "\n");
 }
@@ -523,8 +690,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		gwf_diag_t t;				 //// single diagonal
 		uint32_t x0;				 //// anti diagonal
 		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
-		int32_t r, c, r1, c1;		 //// row and column indices
-		int32_t prev_k;				 //// previous offset
+		int16_t r, c, r_old, c_old;	 //// row and column indices
+		int16_t prev_k;				 //// previous offset
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -537,70 +704,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
 		i = k + d; // query position //// DP row (paper's "i = Hvk + k")
 
-		for (int32_t l = prev_k; l <= k; ++l) //// along the previous cells of the diagonal to extend
-		{
-			r = d + l;
-			c = l;
-			if (r >= 0 && c >= 0) //// within bounds
-			{
-				//// EXTENSION
-				if (v == 0 && r == 0 && c == 0 && dp[v][r][c].s == -1) //// dp[0][0][0]: first match
-				{
-					dp[v][r][c].s = s;
-					dp[v][r][c].str = (char *)malloc(sizeof(char));
-					dp[v][r][c].str[0] = '=';
-					dp[v][r][c].str_len = 1;
-				}
-				else if (r == 0 && c > 0) //// first row (deletion)
-				{
-					if (dp[v][r][c].s == -1) //// not considered yet
-					{
-						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
-						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
-					}
-				}
-				else if (r > 0 && c == 0) //// first column (insertion)
-				{
-					if (dp[v][r][c].s == -1) //// not considered yet
-					{
-						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
-						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
-					}
-				}
-				else if (r > 0 && c > 0) //// central cells
-				{
-					if (dp[v][r][c].s == -1) //// not considered yet
-					{
-						dp[v][r][c].s = (prev_k < c) ? dp[v][r - 1][c - 1].s : dp[v][r - 1][c - 1].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
-						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = (prev_k < c) ? '=' : 'X'; //// match or miss
-					}
-					else if (dp[v][r - 1][c - 1].s > -1) //// update score giving precedence to M wrt I and D
-					{
-						free(dp[v][r][c].str);															  //// delete old string
-						dp[v][r][c].s = (prev_k < c) ? dp[v][r - 1][c - 1].s : dp[v][r - 1][c - 1].s + 1; //// match or miss
-						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
-						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = (prev_k < c) ? '=' : 'X'; //// match or miss
-					}
-				}
-			}
-		}
+		//// EXTENSION
+		dp_extend(dp, v, d, prev_k, k);
 
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
+
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
 		{ // the most common case: the wavefront is in the middle
@@ -610,116 +718,228 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			if (B.n >= 1)
 				push2 = gwf_diag_update(&B.a[B.n - 1], v, d, k + 1, x0 + 2, ooo, t.t);
 			if (push1)
-			{
-				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t); //// diagonal above
-				r = k + d;
-				c = k + 1;
-				if (r >= 0 && c > 0) //// within bounds
-				{
-					if (dp[v][r][c].s == -1) //// not considered yet
-					{
-						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
-						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
-					}
-					else if (dp[v][r][c].s > dp[v][r][c - 1].s + 1) //// update with better score
-					{
-						free(dp[v][r][c].str); //// delete old string
-						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
-						dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
-					}
-				}
-			}
+				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t);
 			if (push2 || push1)
+				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t);
+			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t);
+
+			/* Expanding on diagonal above (deletion) */
+			r = k + d;
+			c = k + 1;
+			if (r >= 0 && c > 0) //// within bounds
 			{
-				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t); //// current diagonal
-				r = k + d + 1;
-				c = k + 1;
-				if (r >= 0 && c >= 0) //// within bounds
+				if (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r][c - 1].s + 1)
 				{
-					if (dp[v][r][c].s == -1) //// not considered yet
+					if (dp[v][r][c].s > dp[v][r][c - 1].s + 1) //// update
 					{
-						if (r == 0 && c == 0) //// first mismatch
-						{
-							dp[v][r][c].s = s + 1;
-							dp[v][r][c].str = (char *)malloc(sizeof(char));
-							dp[v][r][c].str[0] = 'X';
-							dp[v][r][c].str_len = 1;
-						}
-						else if (r == 0 && c > 0) //// more deletions
-						{
-							dp[v][r][c].s = dp[v][r][c - 1].s + 1;
-							dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-								dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
-							dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
-							dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
-						}
-						else if (r > 0 && c == 0) //// more insertions
-						{
-							dp[v][r][c].s = dp[v][r - 1][c].s + 1;
-							dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
-								dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
-							dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
-							dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
-						}
-						else if (r > 0 && c > 0) //// any other cell
-						{
-							dp[v][r][c].s = dp[v][r - 1][c - 1].s + 1;
-							dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
-								dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
-							dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
-							dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
-						}
+						free(dp[v][r][c].op);
+						free(dp[v][r][c].bl);
 					}
-					else if (dp[v][r][c].s > dp[v][r - 1][c - 1].s + 1) //// update with better score
+
+					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+
+					if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
 					{
-						free(dp[v][r][c].str); //// delete old string
+						dp[v][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r][c - 1].op[i];
+						dp[v][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = 'D';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
+				}
+			}
+
+			/* Expanding on current diagonal (mainly mismatch) */
+			r = k + d + 1;
+			c = k + 1;
+			if (r >= 0 && c >= 0) //// within bounds
+			{
+				if (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r - 1][c - 1].s + 1)
+				{
+					if (r == 0 && c == 0) //// first mismatch
+					{
+						dp[v][r][c].s = s + 1;
+						dp[v][r][c].op = (char *)malloc(sizeof(char));
+						dp[v][r][c].bl = (int16_t *)malloc(sizeof(int16_t));
+						dp[v][r][c].op[dp[v][r][c].l] = 'X'; //// Here, dp[v][r][c].l = 0
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+						dp[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
+					}
+					else if (r == 0 && c > 0) //// more deletions
+					{
+						dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+
+						if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
+						{
+							dp[v][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						}
+						else
+						{
+							dp[v][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+						}
+						dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+						for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+						{
+							dp[v][r][c].op[i] = dp[v][r][c - 1].op[i];
+							dp[v][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+						}
+
+						if (dp[v][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+						{
+							dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+						}
+						else
+						{
+							dp[v][r][c].op[dp[v][r][c].l] = 'D';
+							dp[v][r][c].bl[dp[v][r][c].l] = 1;
+						}
+
+						dp[v][r][c].l++; //// now l stands for the length
+					}
+					else if (r > 0 && c == 0) //// more insertions
+					{
+						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+
+						if (dp[v][r - 1][c].op[dp[v][r - 1][c].l - 1] == 'I') //// if already coming from an insertion
+						{
+							dp[v][r][c].l = dp[v][r - 1][c].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						}
+						else
+						{
+							dp[v][r][c].l = dp[v][r - 1][c].l; //// previous length + 1 to store the additional operation
+						}
+						dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+						for (int32_t i = 0; i < dp[v][r - 1][c].l; ++i) //// copy
+						{
+							dp[v][r][c].op[i] = dp[v][r - 1][c].op[i];
+							dp[v][r][c].bl[i] = dp[v][r - 1][c].bl[i];
+						}
+
+						if (dp[v][r][c].l == dp[v][r - 1][c].l - 1) //// kept same length
+						{
+							dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+						}
+						else
+						{
+							dp[v][r][c].op[dp[v][r][c].l] = 'I';
+							dp[v][r][c].bl[dp[v][r][c].l] = 1;
+						}
+
+						dp[v][r][c].l++; //// now l stands for the length
+					}
+					else if (r > 0 && c > 0) //// any other cell
+					{
+						if (dp[v][r][c].s > dp[v][r - 1][c - 1].s + 1) //// update
+						{
+							free(dp[v][r][c].op);
+							free(dp[v][r][c].bl);
+						}
+
 						dp[v][r][c].s = dp[v][r - 1][c - 1].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r - 1][c - 1].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r - 1][c - 1].str[i];
-						dp[v][r][c].str_len = dp[v][r - 1][c - 1].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'X'; //// mismatch
+
+						if (dp[v][r - 1][c - 1].op[dp[v][r - 1][c - 1].l - 1] == 'X') //// if already coming from a mismatch
+						{
+							dp[v][r][c].l = dp[v][r - 1][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						}
+						else
+						{
+							dp[v][r][c].l = dp[v][r - 1][c - 1].l; //// previous length + 1 to store the additional operation
+						}
+						dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+						for (int32_t i = 0; i < dp[v][r - 1][c - 1].l; ++i) //// copy
+						{
+							dp[v][r][c].op[i] = dp[v][r - 1][c - 1].op[i];
+							dp[v][r][c].bl[i] = dp[v][r - 1][c - 1].bl[i];
+						}
+
+						if (dp[v][r][c].l == dp[v][r - 1][c - 1].l - 1) //// kept same length
+						{
+							dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+						}
+						else
+						{
+							dp[v][r][c].op[dp[v][r][c].l] = 'X';
+							dp[v][r][c].bl[dp[v][r][c].l] = 1;
+						}
+
+						dp[v][r][c].l++; //// now l stands for the length
 					}
 				}
 			}
-			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t); //// diagonal below
+
+			/* Expanding on diagonal below (insertion) */
 			r = k + d + 1;
 			c = k;
 			if (r > 0 && c >= 0) //// within bounds
 			{
-				if (dp[v][r][c].s == -1) //// not considered yet
+				if (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r - 1][c].s + 1)
 				{
+					if (dp[v][r][c].s > dp[v][r - 1][c].s + 1) //// update
+					{
+						free(dp[v][r][c].op);
+						free(dp[v][r][c].bl);
+					}
+
 					dp[v][r][c].s = dp[v][r - 1][c].s + 1;
-					dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
-					for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
-						dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
-					dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
-					dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
-				}
-				else if (dp[v][r][c].s > dp[v][r - 1][c].s + 1) //// update with better score
-				{
-					free(dp[v][r][c].str); //// delete old string
-					dp[v][r][c].s = dp[v][r - 1][c].s + 1;
-					dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
-					for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
-						dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
-					dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
-					dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+
+					if (dp[v][r - 1][c].op[dp[v][r - 1][c].l - 1] == 'I') //// if already coming from an insertion
+					{
+						dp[v][r][c].l = dp[v][r - 1][c].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r - 1][c].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int32_t i = 0; i < dp[v][r - 1][c].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r - 1][c].op[i];
+						dp[v][r][c].bl[i] = dp[v][r - 1][c].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r - 1][c].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = 'I';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
 				}
 			}
 		}
-		else if (i + 1 < ql)
+		else if (i + 1 < ql)															  //// NEW VERTEX
 		{																				  // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
 			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1; //// $nv: number of v's neighbors
 			gwf_intv_t *p;
@@ -743,88 +963,148 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
 						r = i + 1;
 						c = ol;
-						r1 = r - 1;
-						c1 = g->len[v] - 1;
-						if (r1 >= 0 && c1 >= 0) //// within bounds
+						r_old = r - 1;
+						c_old = g->len[v] - 1;
+						if (r_old >= 0 && c_old >= 0) //// within bounds
 						{
-							if (dp[w][r][c].s == -1)
+							if (dp[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r_old][c_old].s)
 							{
-								dp[w][r][c].s = dp[v][r1][c1].s;
-								dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
-								for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
-									dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
-								dp[w][r][c].str_len = dp[v][r1][c1].str_len;
-								dp[w][r][c].str[dp[w][r][c].str_len++] = '='; //// match
-							}
-							else if (dp[w][r][c].s > dp[v][r1][c1].s)
-							{
-								dp[w][r][c].s = dp[v][r1][c1].s;
-								free(dp[w][r][c].str); //// delete old string
-								dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
-								for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
-									dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
-								dp[w][r][c].str_len = dp[v][r1][c1].str_len;
-								dp[w][r][c].str[dp[w][r][c].str_len++] = 'X'; //// mismatch
+								if (dp[w][r][c].s > dp[v][r_old][c_old].s) //// update
+								{
+									free(dp[w][r][c].op);
+									free(dp[w][r][c].bl);
+								}
+
+								dp[w][r][c].s = dp[v][r_old][c_old].s;
+
+								if (dp[v][r_old][c_old].op[dp[v][r_old][c_old].l - 1] == '=') //// if already coming from a match
+								{
+									dp[w][r][c].l = dp[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
+								}
+								else
+								{
+									dp[w][r][c].l = dp[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
+								}
+								dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+								dp[w][r][c].bl = (int16_t *)malloc((dp[w][r][c].l + 1) * sizeof(int16_t));
+
+								for (int32_t i = 0; i < dp[v][r_old][c_old].l; ++i) //// copy
+								{
+									dp[w][r][c].op[i] = dp[v][r_old][c_old].op[i];
+									dp[w][r][c].bl[i] = dp[v][r_old][c_old].bl[i];
+								}
+
+								if (dp[w][r][c].l == dp[v][r_old][c_old].l - 1) //// kept same length
+								{
+									dp[w][r][c].bl[dp[w][r][c].l]++; //// just increment
+								}
+								else
+								{
+									dp[w][r][c].op[dp[w][r][c].l] = '=';
+									dp[w][r][c].bl[dp[w][r][c].l] = 1;
+								}
+
+								dp[w][r][c].l++; //// now l stands for the length
 							}
 						}
 					}
 				}
 				else if (absent) //// EXPANSION
 				{
-					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's
+					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's (deletion)
 					r = i;
 					c = ol;
-					r1 = r;
-					c1 = g->len[v] - 1;
-					if (r1 >= 0 && c1 >= 0) //// within bounds
+					r_old = r;
+					c_old = g->len[v] - 1;
+					if (r_old >= 0 && c_old >= 0) //// within bounds
 					{
-						if (dp[w][r][c].s == -1)
+						if (dp[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r_old][c_old].s + 1)
 						{
-							dp[w][r][c].s = dp[v][r1][c1].s + 1;
-							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
-								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
-							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
-							dp[w][r][c].str[dp[w][r][c].str_len++] = 'D'; //// deletion
-						}
-						else if (dp[w][r][c].s > dp[v][r1][c1].s + 1)
-						{
-							free(dp[w][r][c].str); //// delete old string
-							dp[w][r][c].s = dp[v][r1][c1].s + 1;
-							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
-								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
-							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
-							dp[w][r][c].str[dp[w][r][c].str_len++] = 'D'; //// deletion
+							if (dp[w][r][c].s > dp[v][r_old][c_old].s + 1) //// update
+							{
+								free(dp[w][r][c].op);
+								free(dp[w][r][c].bl);
+							}
+
+							dp[w][r][c].s = dp[v][r_old][c_old].s + 1;
+
+							if (dp[v][r_old][c_old].op[dp[v][r_old][c_old].l - 1] == 'D') //// if already coming from a deletion
+							{
+								dp[w][r][c].l = dp[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
+							}
+							else
+							{
+								dp[w][r][c].l = dp[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
+							}
+							dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+							dp[w][r][c].bl = (int16_t *)malloc((dp[w][r][c].l + 1) * sizeof(int16_t));
+
+							for (int32_t i = 0; i < dp[v][r_old][c_old].l; ++i) //// copy
+							{
+								dp[w][r][c].op[i] = dp[v][r_old][c_old].op[i];
+								dp[w][r][c].bl[i] = dp[v][r_old][c_old].bl[i];
+							}
+
+							if (dp[w][r][c].l == dp[v][r_old][c_old].l - 1) //// kept same length
+							{
+								dp[w][r][c].bl[dp[w][r][c].l]++; //// just increment
+							}
+							else
+							{
+								dp[w][r][c].op[dp[w][r][c].l] = 'D';
+								dp[w][r][c].bl[dp[w][r][c].l] = 1;
+							}
+
+							dp[w][r][c].l++; //// now l stands for the length
 						}
 					}
 
-					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's
+					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's (mismatch)
 					r = i + 1;
 					c = ol;
-					r1 = r - 1;
-					c1 = g->len[v] - 1;
+					r_old = r - 1;
+					c_old = g->len[v] - 1;
 
-					if (r1 >= 0 && c1 >= 0) //// within bounds
+					if (r_old >= 0 && c_old >= 0) //// within bounds
 					{
-						if (dp[w][r][c].s == -1)
+						if (dp[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r_old][c_old].s + 1)
 						{
-							dp[w][r][c].s = dp[v][r1][c1].s + 1;
-							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
-								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
-							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
-							dp[w][r][c].str[dp[w][r][c].str_len++] = 'X'; //// mismatch
-						}
-						else if (dp[w][r][c].s > dp[v][r1][c1].s + 1)
-						{
-							free(dp[w][r][c].str); //// delete old string
-							dp[w][r][c].s = dp[v][r1][c1].s + 1;
-							dp[w][r][c].str = (char *)malloc((dp[v][r1][c1].str_len + 1) * sizeof(char));
-							for (int32_t i = 0; i < dp[v][r1][c1].str_len; ++i)
-								dp[w][r][c].str[i] = dp[v][r1][c1].str[i];
-							dp[w][r][c].str_len = dp[v][r1][c1].str_len;
-							dp[w][r][c].str[dp[w][r][c].str_len++] = 'X'; //// mismatch
+							if (dp[w][r][c].s > dp[v][r_old][c_old].s + 1) //// update
+							{
+								free(dp[w][r][c].op);
+								free(dp[w][r][c].bl);
+							}
+
+							dp[w][r][c].s = dp[v][r_old][c_old].s + 1;
+
+							if (dp[v][r_old][c_old].op[dp[v][r_old][c_old].l - 1] == 'X') //// if already coming from a mismatch
+							{
+								dp[w][r][c].l = dp[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
+							}
+							else
+							{
+								dp[w][r][c].l = dp[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
+							}
+							dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+							dp[w][r][c].bl = (int16_t *)malloc((dp[w][r][c].l + 1) * sizeof(int16_t));
+
+							for (int32_t i = 0; i < dp[v][r_old][c_old].l; ++i) //// copy
+							{
+								dp[w][r][c].op[i] = dp[v][r_old][c_old].op[i];
+								dp[w][r][c].bl[i] = dp[v][r_old][c_old].bl[i];
+							}
+
+							if (dp[w][r][c].l == dp[v][r_old][c_old].l - 1) //// kept same length
+							{
+								dp[w][r][c].bl[dp[v][r][c].l]++; //// just increment
+							}
+							else
+							{
+								dp[w][r][c].op[dp[w][r][c].l] = 'X';
+								dp[w][r][c].bl[dp[w][r][c].l] = 1;
+							}
+
+							dp[w][r][c].l++; //// now l stands for the length
 						}
 					}
 				}
@@ -836,24 +1116,44 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				c = k;
 				if (r > 0 && c >= 0)
 				{
-					if (dp[v][r][c].s == -1)
+					if (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r - 1][c].s + 1)
 					{
+						if (dp[v][r][c].s > dp[v][r - 1][c].s + 1) //// update
+						{
+							free(dp[v][r][c].op);
+							free(dp[v][r][c].bl);
+						}
+
 						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
-						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
-					}
-					else if (dp[v][r][c].s > dp[v][r - 1][c].s + 1)
-					{
-						free(dp[v][r][c].str); //// delete old string
-						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
-						dp[v][r][c].str = (char *)malloc((dp[v][r - 1][c].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r - 1][c].str_len; ++i)
-							dp[v][r][c].str[i] = dp[v][r - 1][c].str[i];
-						dp[v][r][c].str_len = dp[v][r - 1][c].str_len;
-						dp[v][r][c].str[dp[v][r][c].str_len++] = 'I'; //// insertion
+
+						if (dp[v][r - 1][c].op[dp[v][r - 1][c].l - 1] == 'I') //// if already coming from an insertion
+						{
+							dp[v][r][c].l = dp[v][r - 1][c].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						}
+						else
+						{
+							dp[v][r][c].l = dp[v][r - 1][c].l; //// previous length + 1 to store the additional operation
+						}
+						dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+						for (int32_t i = 0; i < dp[v][r - 1][c].l; ++i) //// copy
+						{
+							dp[v][r][c].op[i] = dp[v][r - 1][c].op[i];
+							dp[v][r][c].bl[i] = dp[v][r - 1][c].bl[i];
+						}
+
+						if (dp[v][r][c].l == dp[v][r - 1][c].l - 1) //// kept same length
+						{
+							dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+						}
+						else
+						{
+							dp[v][r][c].op[dp[v][r][c].l] = 'I';
+							dp[v][r][c].bl[dp[v][r][c].l] = 1;
+						}
+
+						dp[v][r][c].l++; //// now l stands for the length
 					}
 				}
 			}
@@ -861,7 +1161,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
 		{											 // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
-			gwf_cigar(dp[v][i][k].str, dp[v][i][k].str_len);
+			gwf_cigar(dp[v][i][k]);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
@@ -873,24 +1173,44 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			c = k + 1;
 			if (r >= 0 && c > 0)
 			{
-				if (dp[v][r][c].s == -1)
+				if (dp[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r][c - 1].s + 1)
 				{
+					if (dp[v][r][c].s > dp[v][r][c - 1].s + 1) //// update
+					{
+						free(dp[v][r][c].op);
+						free(dp[v][r][c].bl);
+					}
+
 					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
-					dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-					for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-						dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
-					dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
-					dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
-				}
-				else if (dp[v][r][c].s > dp[v][r][c - 1].s + 1)
-				{
-					free(dp[v][r][c].str); //// delete old string
-					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
-					dp[v][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-					for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-						dp[v][r][c].str[i] = dp[v][r][c - 1].str[i];
-					dp[v][r][c].str_len = dp[v][r][c - 1].str_len;
-					dp[v][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+
+					if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
+					{
+						dp[v][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+					}
+					else
+					{
+						dp[v][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+					}
+					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dp[v][r][c].bl = (int16_t *)malloc((dp[v][r][c].l + 1) * sizeof(int16_t));
+
+					for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+					{
+						dp[v][r][c].op[i] = dp[v][r][c - 1].op[i];
+						dp[v][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+					}
+
+					if (dp[v][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+					{
+						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+					}
+					else
+					{
+						dp[v][r][c].op[dp[v][r][c].l] = 'D';
+						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+					}
+
+					dp[v][r][c].l++; //// now l stands for the length
 				}
 			}
 		}
@@ -908,24 +1228,44 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				c = ol;
 				if (r >= 0 && c > 0)
 				{
-					if (dp[w][r][c].s == -1)
+					if (dp[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r][c - 1].s + 1)
 					{
+						if (dp[w][r][c].s > dp[v][r][c - 1].s + 1)
+						{
+							free(dp[w][r][c].op);
+							free(dp[w][r][c].bl);
+						}
+
 						dp[w][r][c].s = dp[v][r][c - 1].s + 1;
-						dp[w][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-							dp[w][r][c].str[i] = dp[v][r][c - 1].str[i];
-						dp[w][r][c].str_len = dp[v][r][c - 1].str_len;
-						dp[w][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
-					}
-					else if (dp[w][r][c].s > dp[v][r][c - 1].s + 1)
-					{
-						free(dp[w][r][c].str); //// delete old string
-						dp[w][r][c].s = dp[v][r][c - 1].s + 1;
-						dp[w][r][c].str = (char *)malloc((dp[v][r][c - 1].str_len + 1) * sizeof(char));
-						for (int32_t i = 0; i < dp[v][r][c - 1].str_len; ++i)
-							dp[w][r][c].str[i] = dp[v][r][c - 1].str[i];
-						dp[w][r][c].str_len = dp[v][r][c - 1].str_len;
-						dp[w][r][c].str[dp[v][r][c].str_len++] = 'D'; //// deletion
+
+						if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
+						{
+							dp[w][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						}
+						else
+						{
+							dp[w][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+						}
+						dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dp[w][r][c].bl = (int16_t *)malloc((dp[w][r][c].l + 1) * sizeof(int16_t));
+
+						for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+						{
+							dp[w][r][c].op[i] = dp[v][r][c - 1].op[i];
+							dp[w][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+						}
+
+						if (dp[w][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+						{
+							dp[w][r][c].bl[dp[w][r][c].l]++; //// just increment
+						}
+						else
+						{
+							dp[w][r][c].op[dp[w][r][c].l] = 'D';
+							dp[w][r][c].bl[dp[w][r][c].l] = 1;
+						}
+
+						dp[w][r][c].l++; //// now l stands for the length
 					}
 				}
 			}
@@ -981,7 +1321,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 			for (int32_t j = 0; j < g->len[v]; ++j)
 			{
 				dp[v][i][j].s = -1;
-				dp[v][i][j].str_len = 0;
+				dp[v][i][j].l = 0;
 			}
 		}
 	}
@@ -1047,9 +1387,9 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 				if (0 <= dp[v][i][j].s && dp[v][i][j].s <= s)
 				{
 					fprintf(out_dp, "%d,", dp[v][i][j].s);
-					for (int32_t y = 0; y < dp[v][i][j].str_len; ++y)
+					for (int32_t y = 0; y < dp[v][i][j].l; ++y)
 					{
-						fprintf(out_cig, "%c", dp[v][i][j].str[y]);
+						fprintf(out_cig, "%d%c", dp[v][i][j].bl[y], dp[v][i][j].op[y]);
 					}
 					fprintf(out_cig, ",");
 				}
@@ -1081,7 +1421,8 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 			{
 				if (dp[v][i][j].s != -1)
 				{
-					free(dp[v][i][j].str);
+					free(dp[v][i][j].op);
+					free(dp[v][i][j].bl);
 				}
 			}
 			free(dp[v][i]);
