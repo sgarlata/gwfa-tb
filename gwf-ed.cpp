@@ -481,12 +481,17 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 		{
 			r = diag_row_map[v][d];
 			c = rc2col(r_m, c_m) - row_off[v][r];
-			r_m = d + c_m;											//// row in the traditional dp matrix
+			r_m = d + c_m;											//// row in the traditional dpd matrix
 			if (v == 0 && d == 0 && c == 0 && dpd[v][r][c].s == -1) //// dpd[0][0][0]: first match
 			{
 				dpd[v][r][c].s = 0;
-				dpd[v][r][c].op = (char *)malloc(sizeof(char));
+				dpd[v][r][c].op = (char *)malloc(sizeof(char)); //// TODO: CHECK FOR NULL
 				dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
+				if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+				{
+					fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+					abort();
+				}
 				dpd[v][r][c].op[0] = '=';
 				dpd[v][r][c].bl[0] = 1;
 				dpd[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
@@ -507,6 +512,11 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 				}
 				dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 				dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+				if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+				{
+					fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+					abort();
+				}
 
 				for (int32_t i = 0; i < dpd[v][r_prev][c_prev].l; ++i) //// copy
 				{
@@ -542,6 +552,11 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 				}
 				dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 				dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+				if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+				{
+					fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+					abort();
+				}
 
 				for (int32_t i = 0; i < dpd[v][r_prev][c_prev].l; ++i) //// copy
 				{
@@ -589,6 +604,11 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 					}
 					dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 					dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+					if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+					{
+						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+						abort();
+					}
 
 					for (int32_t i = 0; i < dpd[v][r][c - 1].l; ++i) //// copy
 					{
@@ -626,6 +646,11 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 					}
 					dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 					dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+					if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+					{
+						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+						abort();
+					}
 
 					for (int32_t i = 0; i < dpd[v][r][c - 1].l; ++i) //// copy
 					{
@@ -650,35 +675,37 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 	}
 }
 
-//// DP matrix expansion
+//// DP matrix expansion (TODO: invert D and I)
 void dp_expand(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int32_t, int32_t>> diag_row_map, vector<vector<int32_t>> row_off, int32_t v, int32_t d, int32_t k, char ed)
 {
-	int32_t r, r_old, r_m, c, c_old, c_m, d_new;
+	int32_t r, r_old, r_m, c, c_old, c_m, d_new, off = 0;
 
 	if (ed == 'D') //// deletion
 	{
 		d_new = d - 1;
 		r_m = k + d;
 		c_m = k + 1;
+		off = d + k;
 	}
 	else if (ed == 'X') //// mismatch
 	{
 		d_new = d;
 		r_m = k + d + 1;
-		c_m = k + 1 + 1;
+		c_m = k + 1;
 	}
 	else if (ed == 'I') //// insertion
 	{
 		d_new = d + 1;
 		r_m = k + d + 1;
 		c_m = k;
+		off = k;
 	}
 
 	if (ed != 'X' && diag_row_map[v].count(d_new) == 0) //// check if the diagonal has already been assigned to a row
 	{
 		dpd[v].push_back(vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})); //// add row to dpd[v]
-		diag_row_map[v].insert({d_new, dpd[v].size() - 1});									 //// add mapping to diag_row_map[v]
-		row_off[v].push_back(k);															 //// add row's offset (i.e. the current k) to row_off[v]
+		diag_row_map[v].insert({d_new, (int32_t)(dpd[v].size() - 1)});						 //// add mapping to diag_row_map[v]
+		row_off[v].push_back(off);															 //// add row's offset to row_off[v]
 	}
 	r_old = diag_row_map[v][d];					  //// row of the diagonal we are coming from
 	c_old = rc2col(k + d, k) - row_off[v][r_old]; //// column of the diagonal we are coming from (possibly decreased by its row's offset)
@@ -690,18 +717,22 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 		dpd[v][r].push_back({.s = -1, .op = NULL, .bl = NULL, .l = 0});
 	}
 
-	//// mismatch at first comparison
+	//// mismatch only: mismatch at very first base comparison
 	if (ed == 'X' && v == 0 && r == 0 && c == 0)
 	{
-		dpd[v][r][c].s = 1; //// s == 0
+		dpd[v][r][c].s = 1; //// Right now, s == 0
 		dpd[v][r][c].op = (char *)malloc(sizeof(char));
 		dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
+		if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+		{
+			fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+			abort();
+		}
 		dpd[v][r][c].op[dpd[v][r][c].l] = 'X'; //// Here, dpd[v][r][c].l = 0
 		dpd[v][r][c].bl[dpd[v][r][c].l] = 1;
 		dpd[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
 	}
-
-	if (dpd[v][r][c].s == -1 || dpd[v][r][c].s > dpd[v][r_old][c_old].s + 1)
+	else if (dpd[v][r][c].s == -1 || dpd[v][r][c].s > dpd[v][r_old][c_old].s + 1)
 	{
 		if (dpd[v][r][c].s > dpd[v][r_old][c_old].s + 1) //// update
 		{
@@ -721,6 +752,11 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> dpd, vector<unordered_map<int
 		}
 		dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 		dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+		if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+		{
+			fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+			abort();
+		}
 
 		for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 		{
@@ -795,7 +831,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		uint32_t x0;				 //// anti diagonal
 		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
 		int32_t r, c, r_old, c_old;	 //// next and current row and column indices
-		int32_t r_m, c_m;			 //// row and column in the traditional dp matrix, just for reference
+		int32_t r_m, c_m;			 //// row and column in the traditional dpd matrix, just for reference
 		int32_t prev_k;				 //// previous offset
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
@@ -840,8 +876,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				if (diag_row_map[v].count(d - 1) == 0) //// check if the diagonal has already been assigned to a row
 				{
 					dpd[v].push_back(vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})); //// add row to dpd[v]
-					diag_row_map[v].insert({d - 1, dpd[v].size() - 1});									 //// add mapping to diag_row_map[v]
-					row_off[v].push_back(k);															 //// add row's offset (i.e. the current k) to row_off[v]
+					diag_row_map[v].insert({d - 1, (int32_t)(dpd[v].size() - 1)});						 //// add mapping to diag_row_map[v]
+					row_off[v].push_back(r_m);															 //// add row's offset (i.e. the current k) to row_off[v]
 				}
 				r_old = diag_row_map[v][d];					  //// row of the diagonal we are coming from
 				c_old = rc2col(k + d, k) - row_off[v][r_old]; //// column of the diagonal we are coming from (possibly decreased by its row's offset)
@@ -873,6 +909,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					}
 					dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 					dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+					if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+					{
+						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+						abort();
+					}
 
 					for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 					{
@@ -897,8 +938,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				r_m = k + d + 1; //// traditional DP row
 				c_m = k + 1;	 //// traditional DP column
 
-				r_old = diag_row_map[v][d];							  //// row of the diagonal (same for previous and current element)
-				c_old = rc2col(k + d + 1, k + 1) - row_off[v][r_old]; //// column of the previous element along the diagonal (possibly decreased by the row's offset)
+				r_old = diag_row_map[v][d];					  //// row of the diagonal (same for previous and current element)
+				c_old = rc2col(k + d, k) - row_off[v][r_old]; //// column of the previous element along the diagonal (possibly decreased by the row's offset)
 				r = r_old;
 				c = c_old + 1;
 
@@ -914,6 +955,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						dpd[v][r][c].s = 1; //// s == 0
 						dpd[v][r][c].op = (char *)malloc(sizeof(char));
 						dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
+						if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+						{
+							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+							abort();
+						}
 						dpd[v][r][c].op[dpd[v][r][c].l] = 'X'; //// Here, dpd[v][r][c].l = 0
 						dpd[v][r][c].bl[dpd[v][r][c].l] = 1;
 						dpd[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
@@ -1009,6 +1055,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						}
 						dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 						dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+						if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+						{
+							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+							abort();
+						}
 
 						for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 						{
@@ -1037,8 +1088,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				if (diag_row_map[v].count(d + 1) == 0) //// check if the diagonal has already been assigned to a row
 				{
 					dpd[v].push_back(vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0}));
-					diag_row_map[v].insert({d + 1, dpd[v].size() - 1}); //// add mapping to diag_row_map[v]
-					row_off[v].push_back(k);
+					diag_row_map[v].insert({d + 1, (int32_t)(dpd[v].size() - 1)}); //// add mapping to diag_row_map[v]
+					row_off[v].push_back(c_m);
 				}
 				r_old = diag_row_map[v][d];					  //// row of the diagonal we are coming from
 				c_old = rc2col(k + d, k) - row_off[v][r_old]; //// column of the diagonal we are coming from (possibly decreased by its row's offset)
@@ -1070,6 +1121,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					}
 					dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
 					dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+					if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
+					{
+						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+						abort();
+					}
 
 					for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 					{
@@ -1132,44 +1188,49 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 								dpd[w][r].push_back({.s = -1, .op = NULL, .bl = NULL, .l = 0});
 							}
 
-							if (dpd[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r_old][c_old].s)
+							if (dpd[w][r][c].s == -1 || dpd[w][r][c].s > dpd[v][r_old][c_old].s)
 							{
-								if (dp[w][r][c].s > dp[v][r_old][c_old].s) //// update
+								if (dpd[w][r][c].s > dpd[v][r_old][c_old].s) //// update
 								{
-									free(dp[w][r][c].op);
-									free(dp[w][r][c].bl);
+									free(dpd[w][r][c].op);
+									free(dpd[w][r][c].bl);
 								}
 
-								dp[w][r][c].s = dp[v][r_old][c_old].s;
+								dpd[w][r][c].s = dpd[v][r_old][c_old].s;
 
-								if (dp[v][r_old][c_old].op[dp[v][r_old][c_old].l - 1] == '=') //// if already coming from a match
+								if (dpd[v][r_old][c_old].op[dpd[v][r_old][c_old].l - 1] == '=') //// if already coming from a match
 								{
-									dp[w][r][c].l = dp[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
+									dpd[w][r][c].l = dpd[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
 								}
 								else
 								{
-									dp[w][r][c].l = dp[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
+									dpd[w][r][c].l = dpd[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
 								}
-								dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-								dp[w][r][c].bl = (int32_t *)malloc((dp[w][r][c].l + 1) * sizeof(int32_t));
-
-								for (int32_t i = 0; i < dp[v][r_old][c_old].l; ++i) //// copy
+								dpd[w][r][c].op = (char *)malloc((dpd[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+								dpd[w][r][c].bl = (int32_t *)malloc((dpd[w][r][c].l + 1) * sizeof(int32_t));
+								if (dpd[w][r][c].op == NULL || dpd[w][r][c].bl == NULL)
 								{
-									dp[w][r][c].op[i] = dp[v][r_old][c_old].op[i];
-									dp[w][r][c].bl[i] = dp[v][r_old][c_old].bl[i];
+									fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+									abort();
 								}
 
-								if (dp[w][r][c].l == dp[v][r_old][c_old].l - 1) //// kept same length
+								for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 								{
-									dp[w][r][c].bl[dp[w][r][c].l]++; //// just increment
+									dpd[w][r][c].op[i] = dpd[v][r_old][c_old].op[i];
+									dpd[w][r][c].bl[i] = dpd[v][r_old][c_old].bl[i];
+								}
+
+								if (dpd[w][r][c].l == dpd[v][r_old][c_old].l - 1) //// kept same length
+								{
+									dpd[w][r][c].bl[dpd[w][r][c].l]++; //// just increment
 								}
 								else
 								{
-									dp[w][r][c].op[dp[w][r][c].l] = '=';
-									dp[w][r][c].bl[dp[w][r][c].l] = 1;
+									dpd[w][r][c].op[dpd[w][r][c].l] = '=';
+									dpd[w][r][c].bl[dpd[w][r][c].l] = 1;
 								}
 
-								dp[w][r][c].l++; //// now l stands for the length
+								dpd[w][r][c].l++; //// now l stands for the length
 							}
 						}
 					}
@@ -1183,44 +1244,49 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					c_old = g->len[v] - 1;
 					if (r_old >= 0 && c_old >= 0) //// within bounds
 					{
-						if (dpd[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r_old][c_old].s + 1)
+						if (dpd[w][r][c].s == -1 || dpd[w][r][c].s > dpd[v][r_old][c_old].s + 1)
 						{
-							if (dp[w][r][c].s > dp[v][r_old][c_old].s + 1) //// update
+							if (dpd[w][r][c].s > dpd[v][r_old][c_old].s + 1) //// update
 							{
-								free(dp[w][r][c].op);
-								free(dp[w][r][c].bl);
+								free(dpd[w][r][c].op);
+								free(dpd[w][r][c].bl);
 							}
 
-							dp[w][r][c].s = dp[v][r_old][c_old].s + 1;
+							dpd[w][r][c].s = dpd[v][r_old][c_old].s + 1;
 
-							if (dp[v][r_old][c_old].op[dp[v][r_old][c_old].l - 1] == 'D') //// if already coming from a deletion
+							if (dpd[v][r_old][c_old].op[dpd[v][r_old][c_old].l - 1] == 'D') //// if already coming from a deletion
 							{
-								dp[w][r][c].l = dp[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
+								dpd[w][r][c].l = dpd[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
 							}
 							else
 							{
-								dp[w][r][c].l = dp[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
+								dpd[w][r][c].l = dpd[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
 							}
-							dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-							dp[w][r][c].bl = (int32_t *)malloc((dp[w][r][c].l + 1) * sizeof(int32_t));
-
-							for (int32_t i = 0; i < dp[v][r_old][c_old].l; ++i) //// copy
+							dpd[w][r][c].op = (char *)malloc((dpd[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+							dpd[w][r][c].bl = (int32_t *)malloc((dpd[w][r][c].l + 1) * sizeof(int32_t));
+							if (dpd[w][r][c].op == NULL || dpd[w][r][c].bl == NULL)
 							{
-								dp[w][r][c].op[i] = dp[v][r_old][c_old].op[i];
-								dp[w][r][c].bl[i] = dp[v][r_old][c_old].bl[i];
+								fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+								abort();
 							}
 
-							if (dp[w][r][c].l == dp[v][r_old][c_old].l - 1) //// kept same length
+							for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 							{
-								dp[w][r][c].bl[dp[w][r][c].l]++; //// just increment
+								dpd[w][r][c].op[i] = dpd[v][r_old][c_old].op[i];
+								dpd[w][r][c].bl[i] = dpd[v][r_old][c_old].bl[i];
+							}
+
+							if (dpd[w][r][c].l == dpd[v][r_old][c_old].l - 1) //// kept same length
+							{
+								dpd[w][r][c].bl[dpd[w][r][c].l]++; //// just increment
 							}
 							else
 							{
-								dp[w][r][c].op[dp[w][r][c].l] = 'D';
-								dp[w][r][c].bl[dp[w][r][c].l] = 1;
+								dpd[w][r][c].op[dpd[w][r][c].l] = 'D';
+								dpd[w][r][c].bl[dpd[w][r][c].l] = 1;
 							}
 
-							dp[w][r][c].l++; //// now l stands for the length
+							dpd[w][r][c].l++; //// now l stands for the length
 						}
 					}
 
@@ -1232,44 +1298,49 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 					if (r_old >= 0 && c_old >= 0) //// within bounds
 					{
-						if (dpd[w][r][c].s == -1 || dp[w][r][c].s > dp[v][r_old][c_old].s + 1)
+						if (dpd[w][r][c].s == -1 || dpd[w][r][c].s > dpd[v][r_old][c_old].s + 1)
 						{
-							if (dp[w][r][c].s > dp[v][r_old][c_old].s + 1) //// update
+							if (dpd[w][r][c].s > dpd[v][r_old][c_old].s + 1) //// update
 							{
-								free(dp[w][r][c].op);
-								free(dp[w][r][c].bl);
+								free(dpd[w][r][c].op);
+								free(dpd[w][r][c].bl);
 							}
 
-							dp[w][r][c].s = dp[v][r_old][c_old].s + 1;
+							dpd[w][r][c].s = dpd[v][r_old][c_old].s + 1;
 
-							if (dp[v][r_old][c_old].op[dp[v][r_old][c_old].l - 1] == 'X') //// if already coming from a mismatch
+							if (dpd[v][r_old][c_old].op[dpd[v][r_old][c_old].l - 1] == 'X') //// if already coming from a mismatch
 							{
-								dp[w][r][c].l = dp[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
+								dpd[w][r][c].l = dpd[v][r_old][c_old].l - 1; //// keep same length, but decrese it for the moment to use it as index
 							}
 							else
 							{
-								dp[w][r][c].l = dp[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
+								dpd[w][r][c].l = dpd[v][r_old][c_old].l; //// previous length + 1 to store the additional operation
 							}
-							dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-							dp[w][r][c].bl = (int32_t *)malloc((dp[w][r][c].l + 1) * sizeof(int32_t));
-
-							for (int32_t i = 0; i < dp[v][r_old][c_old].l; ++i) //// copy
+							dpd[w][r][c].op = (char *)malloc((dpd[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+							dpd[w][r][c].bl = (int32_t *)malloc((dpd[w][r][c].l + 1) * sizeof(int32_t));
+							if (dpd[w][r][c].op == NULL || dpd[w][r][c].bl == NULL)
 							{
-								dp[w][r][c].op[i] = dp[v][r_old][c_old].op[i];
-								dp[w][r][c].bl[i] = dp[v][r_old][c_old].bl[i];
+								fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+								abort();
 							}
 
-							if (dp[w][r][c].l == dp[v][r_old][c_old].l - 1) //// kept same length
+							for (int32_t i = 0; i < dpd[v][r_old][c_old].l; ++i) //// copy
 							{
-								dp[w][r][c].bl[dp[v][r][c].l]++; //// just increment
+								dpd[w][r][c].op[i] = dpd[v][r_old][c_old].op[i];
+								dpd[w][r][c].bl[i] = dpd[v][r_old][c_old].bl[i];
+							}
+
+							if (dpd[w][r][c].l == dpd[v][r_old][c_old].l - 1) //// kept same length
+							{
+								dpd[w][r][c].bl[dpd[v][r][c].l]++; //// just increment
 							}
 							else
 							{
-								dp[w][r][c].op[dp[w][r][c].l] = 'X';
-								dp[w][r][c].bl[dp[w][r][c].l] = 1;
+								dpd[w][r][c].op[dpd[w][r][c].l] = 'X';
+								dpd[w][r][c].bl[dpd[w][r][c].l] = 1;
 							}
 
-							dp[w][r][c].l++; //// now l stands for the length
+							dpd[w][r][c].l++; //// now l stands for the length
 						}
 					}
 				}
@@ -1281,44 +1352,49 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				c = k;
 				if (r > 0 && c >= 0)
 				{
-					if (dpd[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r - 1][c].s + 1)
+					if (dpd[v][r][c].s == -1 || dpd[v][r][c].s > dpd[v][r - 1][c].s + 1)
 					{
-						if (dp[v][r][c].s > dp[v][r - 1][c].s + 1) //// update
+						if (dpd[v][r][c].s > dpd[v][r - 1][c].s + 1) //// update
 						{
-							free(dp[v][r][c].op);
-							free(dp[v][r][c].bl);
+							free(dpd[v][r][c].op);
+							free(dpd[v][r][c].bl);
 						}
 
-						dp[v][r][c].s = dp[v][r - 1][c].s + 1;
+						dpd[v][r][c].s = dpd[v][r - 1][c].s + 1;
 
-						if (dp[v][r - 1][c].op[dp[v][r - 1][c].l - 1] == 'I') //// if already coming from an insertion
+						if (dpd[v][r - 1][c].op[dpd[v][r - 1][c].l - 1] == 'I') //// if already coming from an insertion
 						{
-							dp[v][r][c].l = dp[v][r - 1][c].l - 1; //// keep same length, but decrese it for the moment to use it as index
+							dpd[v][r][c].l = dpd[v][r - 1][c].l - 1; //// keep same length, but decrese it for the moment to use it as index
 						}
 						else
 						{
-							dp[v][r][c].l = dp[v][r - 1][c].l; //// previous length + 1 to store the additional operation
+							dpd[v][r][c].l = dpd[v][r - 1][c].l; //// previous length + 1 to store the additional operation
 						}
-						dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-						dp[v][r][c].bl = (int32_t *)malloc((dp[v][r][c].l + 1) * sizeof(int32_t));
-
-						for (int32_t i = 0; i < dp[v][r - 1][c].l; ++i) //// copy
+						dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+						if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
 						{
-							dp[v][r][c].op[i] = dp[v][r - 1][c].op[i];
-							dp[v][r][c].bl[i] = dp[v][r - 1][c].bl[i];
+							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+							abort();
 						}
 
-						if (dp[v][r][c].l == dp[v][r - 1][c].l - 1) //// kept same length
+						for (int32_t i = 0; i < dpd[v][r - 1][c].l; ++i) //// copy
 						{
-							dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+							dpd[v][r][c].op[i] = dpd[v][r - 1][c].op[i];
+							dpd[v][r][c].bl[i] = dpd[v][r - 1][c].bl[i];
+						}
+
+						if (dpd[v][r][c].l == dpd[v][r - 1][c].l - 1) //// kept same length
+						{
+							dpd[v][r][c].bl[dpd[v][r][c].l]++; //// just increment
 						}
 						else
 						{
-							dp[v][r][c].op[dp[v][r][c].l] = 'I';
-							dp[v][r][c].bl[dp[v][r][c].l] = 1;
+							dpd[v][r][c].op[dpd[v][r][c].l] = 'I';
+							dpd[v][r][c].bl[dpd[v][r][c].l] = 1;
 						}
 
-						dp[v][r][c].l++; //// now l stands for the length
+						dpd[v][r][c].l++; //// now l stands for the length
 					}
 				}
 			}
@@ -1338,44 +1414,48 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			c = k + 1;
 			if (r >= 0 && c > 0)
 			{
-				if (dpd[v][r][c].s == -1 || dp[v][r][c].s > dp[v][r][c - 1].s + 1)
+				if (dpd[v][r][c].s == -1 || dpd[v][r][c].s > dpd[v][r][c - 1].s + 1)
 				{
-					if (dp[v][r][c].s > dp[v][r][c - 1].s + 1) //// update
+					if (dpd[v][r][c].s > dpd[v][r][c - 1].s + 1) //// update
 					{
-						free(dp[v][r][c].op);
-						free(dp[v][r][c].bl);
+						free(dpd[v][r][c].op);
+						free(dpd[v][r][c].bl);
 					}
 
-					dp[v][r][c].s = dp[v][r][c - 1].s + 1;
+					dpd[v][r][c].s = dpd[v][r][c - 1].s + 1;
 
-					if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
+					if (dpd[v][r][c - 1].op[dpd[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
 					{
-						dp[v][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						dpd[v][r][c].l = dpd[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
 					}
 					else
 					{
-						dp[v][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+						dpd[v][r][c].l = dpd[v][r][c - 1].l; //// previous length + 1 to store the additional operation
 					}
-					dp[v][r][c].op = (char *)malloc((dp[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-					dp[v][r][c].bl = (int32_t *)malloc((dp[v][r][c].l + 1) * sizeof(int32_t));
-
-					for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+					dpd[v][r][c].op = (char *)malloc((dpd[v][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dpd[v][r][c].bl = (int32_t *)malloc((dpd[v][r][c].l + 1) * sizeof(int32_t));
+					if (dpd[v][r][c].op == NULL || dpd[v][r][c].bl == NULL)
 					{
-						dp[v][r][c].op[i] = dp[v][r][c - 1].op[i];
-						dp[v][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+						abort();
+					}
+					for (int32_t i = 0; i < dpd[v][r][c - 1].l; ++i) //// copy
+					{
+						dpd[v][r][c].op[i] = dpd[v][r][c - 1].op[i];
+						dpd[v][r][c].bl[i] = dpd[v][r][c - 1].bl[i];
 					}
 
-					if (dp[v][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+					if (dpd[v][r][c].l == dpd[v][r][c - 1].l - 1) //// kept same length
 					{
-						dp[v][r][c].bl[dp[v][r][c].l]++; //// just increment
+						dpd[v][r][c].bl[dpd[v][r][c].l]++; //// just increment
 					}
 					else
 					{
-						dp[v][r][c].op[dp[v][r][c].l] = 'D';
-						dp[v][r][c].bl[dp[v][r][c].l] = 1;
+						dpd[v][r][c].op[dpd[v][r][c].l] = 'D';
+						dpd[v][r][c].bl[dpd[v][r][c].l] = 1;
 					}
 
-					dp[v][r][c].l++; //// now l stands for the length
+					dpd[v][r][c].l++; //// now l stands for the length
 				}
 			}
 		}
@@ -1393,44 +1473,49 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				c = ol;
 				if (r >= 0 && c > 0)
 				{
-					if (dpd[w][r][c].s == -1 || dpd[w][r][c].s > dp[v][r][c - 1].s + 1)
+					if (dpd[w][r][c].s == -1 || dpd[w][r][c].s > dpd[v][r][c - 1].s + 1)
 					{
-						if (dp[w][r][c].s > dp[v][r][c - 1].s + 1)
+						if (dpd[w][r][c].s > dpd[v][r][c - 1].s + 1)
 						{
-							free(dp[w][r][c].op);
-							free(dp[w][r][c].bl);
+							free(dpd[w][r][c].op);
+							free(dpd[w][r][c].bl);
 						}
 
-						dp[w][r][c].s = dp[v][r][c - 1].s + 1;
+						dpd[w][r][c].s = dpd[v][r][c - 1].s + 1;
 
-						if (dp[v][r][c - 1].op[dp[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
+						if (dpd[v][r][c - 1].op[dpd[v][r][c - 1].l - 1] == 'D') //// if already coming from a deletion
 						{
-							dp[w][r][c].l = dp[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
+							dpd[w][r][c].l = dpd[v][r][c - 1].l - 1; //// keep same length, but decrese it for the moment to use it as index
 						}
 						else
 						{
-							dp[w][r][c].l = dp[v][r][c - 1].l; //// previous length + 1 to store the additional operation
+							dpd[w][r][c].l = dpd[v][r][c - 1].l; //// previous length + 1 to store the additional operation
 						}
-						dp[w][r][c].op = (char *)malloc((dp[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-						dp[w][r][c].bl = (int32_t *)malloc((dp[w][r][c].l + 1) * sizeof(int32_t));
-
-						for (int32_t i = 0; i < dp[v][r][c - 1].l; ++i) //// copy
+						dpd[w][r][c].op = (char *)malloc((dpd[w][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dpd[w][r][c].bl = (int32_t *)malloc((dpd[w][r][c].l + 1) * sizeof(int32_t));
+						if (dpd[w][r][c].op == NULL || dpd[w][r][c].bl == NULL)
 						{
-							dp[w][r][c].op[i] = dp[v][r][c - 1].op[i];
-							dp[w][r][c].bl[i] = dp[v][r][c - 1].bl[i];
+							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
+							abort();
 						}
 
-						if (dp[w][r][c].l == dp[v][r][c - 1].l - 1) //// kept same length
+						for (int32_t i = 0; i < dpd[v][r][c - 1].l; ++i) //// copy
 						{
-							dp[w][r][c].bl[dp[w][r][c].l]++; //// just increment
+							dpd[w][r][c].op[i] = dpd[v][r][c - 1].op[i];
+							dpd[w][r][c].bl[i] = dpd[v][r][c - 1].bl[i];
+						}
+
+						if (dpd[w][r][c].l == dpd[v][r][c - 1].l - 1) //// kept same length
+						{
+							dpd[w][r][c].bl[dpd[w][r][c].l]++; //// just increment
 						}
 						else
 						{
-							dp[w][r][c].op[dp[w][r][c].l] = 'D';
-							dp[w][r][c].bl[dp[w][r][c].l] = 1;
+							dpd[w][r][c].op[dpd[w][r][c].l] = 'D';
+							dpd[w][r][c].bl[dpd[w][r][c].l] = 1;
 						}
 
-						dp[w][r][c].l++; //// now l stands for the length
+						dpd[w][r][c].l++; //// now l stands for the length
 					}
 				}
 			}
@@ -1475,14 +1560,17 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	vector<vector<vector<gwf_cigar_t>>> dpd(1, vector<vector<gwf_cigar_t>>(1, vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})));
 
 	//// For each graph's node v, an hash table to associate a diagonal to the row where it is stored in $dpd[v]
-	vector<unordered_map<int32_t, int32_t>> diag_row_map(1, unordered_map<int32_t, int32_t>({0, 0}));
+	unordered_map<int32_t, int32_t> map_tmp;
+	vector<unordered_map<int32_t, int32_t>> diag_row_map; //(1, unordered_map<int32_t, int32_t>({0, 0}));
+	map_tmp[0] = 0;
+	diag_row_map.push_back(map_tmp);
 
 	//// For each graph's node v, an hash table to know how many offset columns should be considered for each row (i.e. how many cells off the diagonal starts from on the DP matrix)
 	// vector<unordered_map<int32_t, int32_t>> row_col_map(1, unordered_map<int32_t, int32_t>({0, 0}));
 	//// For each graph's node v, a vector to know how many offset columns should be considered for each row (i.e. after how many cells the diagonal starts on the DP matrix)
 	vector<vector<int32_t>> row_off(1, vector<int32_t>(1, 0));
 
-	FILE *out_dp = fopen("out/dp.csv", "w");
+	FILE *out_dp = fopen("out/dpd.csv", "w");
 	FILE *out_cig = fopen("out/cig.csv", "w");
 
 	if (out_dp == NULL || out_cig == NULL)
@@ -1540,12 +1628,12 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		{
 			for (int j = 0; j < g->len[v]; ++j)
 			{
-				if (0 <= dpd[v][i][j].s && dp[v][i][j].s <= s)
+				if (0 <= dpd[v][i][j].s && dpd[v][i][j].s <= s)
 				{
-					fprintf(out_dp, "%d,", dp[v][i][j].s);
-					for (int32_t y = 0; y < dp[v][i][j].l; ++y)
+					fprintf(out_dp, "%d,", dpd[v][i][j].s);
+					for (int32_t y = 0; y < dpd[v][i][j].l; ++y)
 					{
-						fprintf(out_cig, "%d%c", dp[v][i][j].bl[y], dp[v][i][j].op[y]);
+						fprintf(out_cig, "%d%c", dpd[v][i][j].bl[y], dpd[v][i][j].op[y]);
 					}
 					fprintf(out_cig, ",");
 				}
@@ -1571,21 +1659,15 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	//// FREE DP MATRIX
 	for (int32_t v = 0; v < g->n_vtx; ++v)
 	{
-		for (int32_t i = 0; i < ql; ++i)
+		for (int32_t i = 0; i < dpd[v].size(); ++i)
 		{
-			for (int32_t j = 0; j < g->len[v]; ++j)
+			for (int32_t j = 0; j < dpd[v][i].size(); ++j)
 			{
-				if (dp[v][i][j].s != -1)
-				{
-					free(dp[v][i][j].op);
-					free(dp[v][i][j].bl);
-				}
+				free(dpd[v][i][j].op);
+				free(dpd[v][i][j].bl);
 			}
-			free(dp[v][i]);
 		}
-		free(dp[v]);
 	}
-	free(dp);
 	fclose(out_dp);
 	fclose(out_cig);
 
