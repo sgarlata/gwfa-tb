@@ -1,6 +1,9 @@
 CC=			gcc
-CFLAGS=		-g -Wall -O2
+CXX=		g++
+CFLAGS=		-g -Wall -O0
+CXXFLAGS=	-g -Wall -O0 -std=c++17
 CPPFLAGS=	-DGWF_DEBUG
+
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o
 PROG=		gwf-test
@@ -17,10 +20,13 @@ endif
 .c.o:
 		$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
+.cpp.o:
+		$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $< -o $@
+
 all:$(PROG)
 
 $(PROG):$(OBJS) main.o
-		$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
 
 clean:
 		rm -fr gmon.out *.o a.out $(PROG) *~ *.a *.dSYM
