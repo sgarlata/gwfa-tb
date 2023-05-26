@@ -921,12 +921,12 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 				for (int32_t c_dp = 0; c_dp < (int32_t)g->len[vtx]; ++c_dp) //// for each vertex base
 				{
 					//// single cell management here
-					d = r_dp - c_dp; //// diagonal from row and column of the traditional DP matrix (taking the vertex row offset into account)
+					d = r_dp - c_dp; //// diagonal from row and column of the traditional DP matrix
 
-					if (r_dp >= v_off[v_map[v]] && dp_check_cell(v_map, dpd, diag_row_map, diag_off, vtx, d, c_dp)) //// cell present
+					if (v_map.count(vtx) && r_dp >= v_off[v_map[vtx]] && dp_check_cell(v_map, dpd, diag_row_map, diag_off, vtx, d, c_dp)) //// cell present
 					{
 						v = v_map[vtx];
-						r = diag_row_map[v][d];
+						r = diag_row_map[v][d + v];
 						c = min(r_dp, c_dp) - diag_off[v][r];
 						fprintf(out_dp, "%d,", dpd[v][r][c].s);
 						for (int32_t i = 0; i < dpd[v][r][c].l; ++i)
