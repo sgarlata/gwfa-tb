@@ -450,6 +450,10 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	B->n += m;
 }
 
+//// Inline functions to retrieve row and column of the respective $dpd cell
+extern inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d, int32_t off);
+extern inline int32_t get_col(vector<vector<int32_t>> &diag_off, int32_t v, int32_t r_dp, int32_t c_dp, int32_t r);
+
 // wfa_extend and wfa_next combined
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
 								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<int32_t> &v_off, vector<vector<int32_t>> &diag_off)
@@ -488,13 +492,13 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 	while (kdq_size(A)) //// while there are still diagonals to update the wavefront
 	{
-		gwf_diag_t t;				 //// single diagonal
-		uint32_t x0;				 //// anti diagonal
-		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
-		int32_t r, c, r_out, c_out;	 //// next and current row and column indices
-		int32_t r_dp, c_dp;			 //// row and column in the traditional DP matrix
-		int32_t prev_k;				 //// previous offset
-		int32_t v_out, v_in;		 //// outgoing and incoming vertices
+		gwf_diag_t t;				  //// single diagonal
+		uint32_t x0;				  //// anti diagonal
+		int32_t ooo, v, d, k, i, vl;  //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
+		int32_t r, c, r_from, c_from; //// next and current row and column indices
+		int32_t r_dp, c_dp;			  //// row and column in the traditional DP matrix
+		int32_t prev_k;				  //// previous offset
+		int32_t v_from, v_to;		  //// outgoing and incoming vertices
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -507,7 +511,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 
 		//// EXTENSION
-		dp_extend(dpd, diag_row_map, v_off, diag_off, v_map[v], d, prev_k, k); //// possible optimization: call only if k >= 0
+		dp_extend(dpd, diag_row_map, v_off, diag_off, v_map[v], d, prev_k, k); //// TODO possible optimization: call only if k >= 0
 
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -552,170 +556,170 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
-						v_out = v_map[v];
+						v_from = v_map[v];
 						r_dp = i + 1;
 						c_dp = ol;
-						r_out = diag_row_map[v_out][d];
-						c_out = min(r_dp - 1, (int32_t)g->len[v] - 1) - diag_off[v_out][r_out];
+						r_from = get_row(diag_row_map, v_from, d, 0);
+						c_from = get_col(diag_off, v_from, r_dp - 1, (int32_t)g->len[v] - 1, r_from);
 						dp_new_vd(v_map, dpd, diag_row_map, v_off, diag_off, w, d + 1, r_dp, c_dp, r, c);
-						v_in = v_map[w];
+						v_to = v_map[w];
 
-						if (dpd[v_in][r][c].s == -1 || dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s)
+						if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s)
 						{
-							if (dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s) //// update
+							if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
 							{
-								free(dpd[v_in][r][c].op);
-								free(dpd[v_in][r][c].bl);
+								free(dpd[v_to][r][c].op);
+								free(dpd[v_to][r][c].bl);
 							}
 
-							dpd[v_in][r][c].s = dpd[v_out][r_out][c_out].s;
+							dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s;
 
-							if (dpd[v_out][r_out][c_out].op[dpd[v_out][r_out][c_out].l - 1] == '=') //// if already coming from a match
+							if (dpd[v_from][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == '=') //// if already coming from a match
 							{
-								dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l - 1; //// keep same length, but decrese it for the moment to use it as index
+								dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
 							}
 							else
 							{
-								dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l; //// previous length + 1 to store the additional operation
+								dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
 							}
-							dpd[v_in][r][c].op = (char *)malloc((dpd[v_in][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-							dpd[v_in][r][c].bl = (int32_t *)malloc((dpd[v_in][r][c].l + 1) * sizeof(int32_t));
-							if (dpd[v_in][r][c].op == NULL || dpd[v_in][r][c].bl == NULL)
+							dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+							dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
+							if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
 							{
 								fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
 								abort();
 							}
 
-							for (int32_t i = 0; i < dpd[v_out][r_out][c_out].l; ++i) //// copy
+							for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
 							{
-								dpd[v_in][r][c].op[i] = dpd[v_out][r_out][c_out].op[i];
-								dpd[v_in][r][c].bl[i] = dpd[v_out][r_out][c_out].bl[i];
+								dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
+								dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
 							}
 
-							if (dpd[v_in][r][c].l == dpd[v_out][r_out][c_out].l - 1) //// kept same length
+							if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
 							{
-								dpd[v_in][r][c].bl[dpd[v_in][r][c].l]++; //// just increment
+								dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
 							}
 							else
 							{
-								dpd[v_in][r][c].op[dpd[v_in][r][c].l] = '=';
-								dpd[v_in][r][c].bl[dpd[v_in][r][c].l] = 1;
+								dpd[v_to][r][c].op[dpd[v_to][r][c].l] = '=';
+								dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
 							}
 
-							dpd[v_in][r][c].l++; //// now l stands for the length
-							fprintf(stdout, "[DEBUG] Extension: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_out, r_out, c_out, dpd[w][r][c].s, v_in, r, c, dpd[w][r][c].s);
+							dpd[v_to][r][c].l++; //// now l stands for the length
+							fprintf(stdout, "[DEBUG] Extension: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_from, r_from, c_from, dpd[w][r][c].s, v_to, r, c, dpd[w][r][c].s);
 						}
 					}
 				}
 				else if (absent) //// EXPANSION ACROSS VERTICES
 				{
-					v_out = v_map[v];
+					v_from = v_map[v];
 					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's (deletion)
 					r_dp = i;
 					c_dp = ol;
-					r_out = diag_row_map[v_out][d];
-					c_out = min(r_dp, (int32_t)g->len[v] - 1) - diag_off[v_out][r_out];
+					r_from = get_row(diag_row_map, v_from, d, 0);
+					c_from = get_col(diag_off, v_from, r_dp, (int32_t)g->len[v] - 1, r_from);
 					dp_new_vd(v_map, dpd, diag_row_map, v_off, diag_off, w, d, r_dp, c_dp, r, c);
-					v_in = v_map[w];
+					v_to = v_map[w];
 
-					if (dpd[v_in][r][c].s == -1 || dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s + 1)
+					if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
-						if (dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s + 1) //// update
+						if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
-							free(dpd[v_in][r][c].op);
-							free(dpd[v_in][r][c].bl);
+							free(dpd[v_to][r][c].op);
+							free(dpd[v_to][r][c].bl);
 						}
 
-						dpd[v_in][r][c].s = dpd[v_out][r_out][c_out].s + 1;
+						dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s + 1;
 
-						if (dpd[v_out][r_out][c_out].op[dpd[v_out][r_out][c_out].l - 1] == 'D') //// if already coming from a deletion
+						if (dpd[v_from][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == 'D') //// if already coming from a deletion
 						{
-							dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l - 1; //// keep same length, but decrese it for the moment to use it as index
+							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
 						}
 						else
 						{
-							dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l; //// previous length + 1 to store the additional operation
+							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
 						}
-						dpd[v_in][r][c].op = (char *)malloc((dpd[v_in][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-						dpd[v_in][r][c].bl = (int32_t *)malloc((dpd[v_in][r][c].l + 1) * sizeof(int32_t));
-						if (dpd[v_in][r][c].op == NULL || dpd[v_in][r][c].bl == NULL)
+						dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
+						if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
 						{
 							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
 							abort();
 						}
 
-						for (int32_t i = 0; i < dpd[v_out][r_out][c_out].l; ++i) //// copy
+						for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
 						{
-							dpd[v_in][r][c].op[i] = dpd[v_out][r_out][c_out].op[i];
-							dpd[v_in][r][c].bl[i] = dpd[v_out][r_out][c_out].bl[i];
+							dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
+							dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
 						}
 
-						if (dpd[v_in][r][c].l == dpd[v_out][r_out][c_out].l - 1) //// kept same length
+						if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
 						{
-							dpd[v_in][r][c].bl[dpd[v_in][r][c].l]++; //// just increment
+							dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
 						}
 						else
 						{
-							dpd[v_in][r][c].op[dpd[v_in][r][c].l] = 'D';
-							dpd[v_in][r][c].bl[dpd[v_in][r][c].l] = 1;
+							dpd[v_to][r][c].op[dpd[v_to][r][c].l] = 'D';
+							dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
 						}
 
-						dpd[v_in][r][c].l++; //// now l stands for the length
-						fprintf(stdout, "Exspansion: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_out, r_out, c_out, dpd[v_out][r_out][c_out].s, v_in, r, c, dpd[v_out][r_out][c_out].s + 1);
+						dpd[v_to][r][c].l++; //// now l stands for the length
+						fprintf(stdout, "Exspansion: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_from, r_from, c_from, dpd[v_from][r_from][c_from].s, v_to, r, c, dpd[v_from][r_from][c_from].s + 1);
 					}
 
 					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's (mismatch)
 					r_dp = i + 1;
 					c_dp = ol;
-					r_out = diag_row_map[v_out][d];
-					c_out = min(r_dp - 1, (int32_t)g->len[v] - 1) - diag_off[v_out][r_out];
+					r_from = get_row(diag_row_map, v_from, d, 0);
+					c_from = get_col(diag_off, v_from, r_dp - 1, (int32_t)g->len[v] - 1, r_from);
 
 					dp_new_vd(v_map, dpd, diag_row_map, v_off, diag_off, w, d, r_dp, c_dp, r, c); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
 
-					if (dpd[v_in][r][c].s == -1 || dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s + 1)
+					if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
-						if (dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s + 1) //// update
+						if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
-							free(dpd[v_in][r][c].op);
-							free(dpd[v_in][r][c].bl);
+							free(dpd[v_to][r][c].op);
+							free(dpd[v_to][r][c].bl);
 						}
 
-						dpd[v_in][r][c].s = dpd[v_out][r_out][c_out].s + 1;
+						dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s + 1;
 
-						if (dpd[v_out][r_out][c_out].op[dpd[v_out][r_out][c_out].l - 1] == 'X') //// if already coming from a mismatch
+						if (dpd[v_from][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == 'X') //// if already coming from a mismatch
 						{
-							dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l - 1; //// keep same length, but decrese it for the moment to use it as index
+							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
 						}
 						else
 						{
-							dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l; //// previous length + 1 to store the additional operation
+							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
 						}
-						dpd[v_in][r][c].op = (char *)malloc((dpd[v_in][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-						dpd[v_in][r][c].bl = (int32_t *)malloc((dpd[v_in][r][c].l + 1) * sizeof(int32_t));
-						if (dpd[v_in][r][c].op == NULL || dpd[v_in][r][c].bl == NULL)
+						dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+						dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
+						if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
 						{
 							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
 							abort();
 						}
 
-						for (int32_t i = 0; i < dpd[v_out][r_out][c_out].l; ++i) //// copy
+						for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
 						{
-							dpd[v_in][r][c].op[i] = dpd[v_out][r_out][c_out].op[i];
-							dpd[v_in][r][c].bl[i] = dpd[v_out][r_out][c_out].bl[i];
+							dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
+							dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
 						}
 
-						if (dpd[v_in][r][c].l == dpd[v_out][r_out][c_out].l - 1) //// kept same length
+						if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
 						{
-							dpd[v_in][r][c].bl[dpd[v_in][r][c].l]++; //// just increment
+							dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
 						}
 						else
 						{
-							dpd[v_in][r][c].op[dpd[v_in][r][c].l] = 'X';
-							dpd[v_in][r][c].bl[dpd[v_in][r][c].l] = 1;
+							dpd[v_to][r][c].op[dpd[v_to][r][c].l] = 'X';
+							dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
 						}
 
-						dpd[v_in][r][c].l++; //// now l stands for the length
-						fprintf(stdout, "[DEBUG] Extension: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_out, r_out, c_out, dpd[v_out][r_out][c_out].s, v_in, r, c, dpd[v_out][r_out][c_out].s + 1);
+						dpd[v_to][r][c].l++; //// now l stands for the length
+						fprintf(stdout, "[DEBUG] Extension: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_from, r_from, c_from, dpd[v_from][r_from][c_from].s, v_to, r, c, dpd[v_from][r_from][c_from].s + 1);
 					}
 				}
 			}
@@ -730,8 +734,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
 		{											 // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
-			r = diag_row_map[v_map[v]][d];
-			c = min(i, k) - diag_off[v_map[v]][r];
+			r = get_row(diag_row_map, v_map[v], d, 0);
+			c = get_col(diag_off, v_map[v], i, k, r);
 			gwf_cigar(dpd[v_map[v]][r][c]);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
@@ -754,57 +758,57 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
 				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
-				v_out = v_map[v];
+				v_from = v_map[v];
 				r_dp = i;
 				c_dp = ol;
-				r_out = diag_row_map[v_out][d];
-				c_out = min(r_dp, (int32_t)g->len[v] - 1) - diag_off[v_out][r_out];
+				r_from = get_row(diag_row_map, v_from, d, 0);
+				c_from = get_col(diag_off, v_from, r_dp, (int32_t)g->len[v] - 1, r_from);
 				dp_new_vd(v_map, dpd, diag_row_map, v_off, diag_off, w, d - 1, r_dp, c_dp, r, c);
-				v_in = v_map[w];
+				v_to = v_map[w];
 
-				if (dpd[v_in][r][c].s == -1 || dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s + 1)
+				if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 				{
-					if (dpd[v_in][r][c].s > dpd[v_out][r_out][c_out].s + 1) //// update
+					if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 					{
-						free(dpd[v_in][r][c].op);
-						free(dpd[v_in][r][c].bl);
+						free(dpd[v_to][r][c].op);
+						free(dpd[v_to][r][c].bl);
 					}
 
-					dpd[v_in][r][c].s = dpd[v_out][r_out][c_out].s + 1;
+					dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s + 1;
 
-					if (dpd[v][r_out][c_out].op[dpd[v_out][r_out][c_out].l - 1] == 'D') //// if already coming from a deletion
+					if (dpd[v][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == 'D') //// if already coming from a deletion
 					{
-						dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l - 1; //// keep same length, but decrese it for the moment to use it as index
+						dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
 					}
 					else
 					{
-						dpd[v_in][r][c].l = dpd[v_out][r_out][c_out].l; //// previous length + 1 to store the additional operation
+						dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
 					}
-					dpd[v_in][r][c].op = (char *)malloc((dpd[v_in][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-					dpd[v_in][r][c].bl = (int32_t *)malloc((dpd[v_in][r][c].l + 1) * sizeof(int32_t));
-					if (dpd[v_in][r][c].op == NULL || dpd[v_in][r][c].bl == NULL)
+					dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
+					dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
+					if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
 					{
 						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
 						abort();
 					}
 
-					for (int32_t i = 0; i < dpd[v_out][r_out][c_out].l; ++i) //// copy
+					for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
 					{
-						dpd[v_in][r][c].op[i] = dpd[v_out][r_out][c_out].op[i];
-						dpd[v_in][r][c].bl[i] = dpd[v_out][r_out][c_out].bl[i];
+						dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
+						dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
 					}
 
-					if (dpd[v_in][r][c].l == dpd[v_out][r_out][c_out].l - 1) //// kept same length
+					if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
 					{
-						dpd[v_in][r][c].bl[dpd[v_in][r][c].l]++; //// just increment
+						dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
 					}
 					else
 					{
-						dpd[v_in][r][c].op[dpd[v_in][r][c].l] = 'D';
-						dpd[v_in][r][c].bl[dpd[v_in][r][c].l] = 1;
+						dpd[v_to][r][c].op[dpd[v_to][r][c].l] = 'D';
+						dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
 					}
 
-					dpd[v_in][r][c].l++; //// now l stands for the length
+					dpd[v_to][r][c].l++; //// now l stands for the length
 				}
 			}
 		}
@@ -923,11 +927,11 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 					//// single cell management here
 					d = r_dp - c_dp; //// diagonal from row and column of the traditional DP matrix
 
-					if (v_map.count(vtx) && r_dp >= v_off[v_map[vtx]] && dp_check_cell(v_map, dpd, diag_row_map, diag_off, vtx, d, c_dp)) //// cell present
+					if (v_map.count(vtx) && r_dp >= v_off[v_map[vtx]] && dp_check_cell(v_map, dpd, diag_row_map, v_off, diag_off, vtx, d, c_dp)) //// cell present
 					{
 						v = v_map[vtx];
-						r = diag_row_map[v][d + v];
-						c = min(r_dp, c_dp) - diag_off[v][r];
+						r = get_row(diag_row_map, v, d, 0);
+						c = get_col(diag_off, v, r_dp, c_dp, r);
 						fprintf(out_dp, "%d,", dpd[v][r][c].s);
 						for (int32_t i = 0; i < dpd[v][r][c].l; ++i)
 						{
