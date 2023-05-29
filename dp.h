@@ -17,9 +17,9 @@ typedef struct gwf_cigar_t
 } gwf_cigar_t;
 
 //// DIAGONAL-OFFSET -> ROW-COLUMN
-inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d, int32_t off)
+inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d)
 {
-    return diag_row_map[v][d + off];
+    return diag_row_map[v][d];
 }
 
 inline int32_t get_col(vector<vector<int32_t>> &diag_off, int32_t v, int32_t r_dp, int32_t c_dp, int32_t r)
@@ -27,28 +27,17 @@ inline int32_t get_col(vector<vector<int32_t>> &diag_off, int32_t v, int32_t r_d
     return min(r_dp, c_dp) - diag_off[v][r];
 }
 
-//// ROW-COLUMN -> DIAGONAL-OFFSET
-inline int32_t get_diag()
-{
-    return 0;
-}
-
-inline int32_t get_k()
-{
-    return 0;
-}
-
 //// Check if DP matrix cell is empty or actually stored in the data structure
 int32_t
-dp_check_cell(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<int32_t> &v_off, vector<vector<int32_t>> &diag_off, int32_t vtx, int32_t d, int32_t k)
+dp_check_cell(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t vtx, int32_t d, int32_t k)
 {
     int32_t v, r, c;
     if (v_map.count(vtx)) //// vertex: ok
     {
         v = v_map[vtx];
-        if (diag_row_map[v].count(d) == 1) //// diagonal ($dpd's row): ok
+        if (diag_row_map[v].count(d)) //// diagonal ($dpd's row): ok
         {
-            r = get_row(diag_row_map, v, d, 0);
+            r = get_row(diag_row_map, v, d);
             c = get_col(diag_off, v, d + k, k, r);
 
             if (0 <= c && c < (int32_t)dpd[v][r].size()) //// column: ok
@@ -61,22 +50,22 @@ dp_check_cell(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_c
 }
 
 //// DP matrix extension (within same vertex)
-void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<int32_t> &v_off, vector<vector<int32_t>> &diag_off, int32_t v, int32_t d, int32_t prev_k, int32_t k)
+void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t v, int32_t d, int32_t prev_k, int32_t k)
 {
     int32_t r, c, r_dp, c_dp, r_prev, c_prev;
 
-    for (c_dp = prev_k; c_dp <= k; ++c_dp) //// along the previous cells of the diagonal to extend
+    for (c_dp = 0; c_dp <= k; ++c_dp) //// along the previous cells of the diagonal to extend
     {
-        r_dp = d + c_dp; //// row in the traditional dpd matrix
-        if (c_dp >= 0)   //// within bounds
+        r_dp = d + c_dp;            //// row in the traditional dpd matrix
+        if (r_dp >= 0 && c_dp >= 0) //// within bounds
         {
-            r = get_row(diag_row_map, v, d, 0);
+            r = get_row(diag_row_map, v, d);
             c = get_col(diag_off, v, r_dp, c_dp, r);
 
             if (v == 0 && d == 0 && c == 0 && dpd[v][r][c].s == -1) //// dpd[0][0][0]: first match
             {
                 dpd[v][r][c].s = 0;
-                fprintf(stdout, "[DEBUG] Starting match: [%d][%d][%d] = %d\n", v, r, c, dpd[v][r][c].s);
+                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r_dp, c_dp, dpd[v][r][c].s);
 
                 dpd[v][r][c].op = (char *)malloc(sizeof(char));
                 dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
@@ -89,12 +78,12 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
                 dpd[v][r][c].bl[0] = 1;
                 dpd[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
             }
-            else if (r_dp == 0 && c_dp > 0 && dpd[v][r][c].s == -1) //// first base of negative diagonals (deletion)
+            /*else if (r_dp == 0 && c_dp > 0 && dpd[v][r][c].s == -1) //// first base of negative diagonals (deletion)
             {
-                r_prev = get_row(diag_row_map, v, d + 1, 0);           //// row of diagonal below
+                r_prev = get_row(diag_row_map, v, d + 1);              //// row of diagonal below
                 c_prev = get_col(diag_off, v, r_dp, c_dp - 1, r_prev); //// column of the DP matrix's left cell (taking the offset into account)
                 dpd[v][r][c].s = dpd[v][r_prev][c_prev].s + 1;         //// add 1 to the distance of the first base of the diagonal below
-                fprintf(stdout, "[DEBUG] Deletion: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r, c, dpd[v][r][c].s, v, r_prev, c_prev, dpd[v][r_prev][c_prev].s);
+                fprintf(stdout, "[DEBUG] Expansion(D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_dp, c_dp - 1, dpd[v][r][c].s, v, r_dp, c_dp, dpd[v][r_prev][c_prev].s);
 
                 if (dpd[v][r_prev][c_prev].op[dpd[v][r_prev][c_prev].l - 1] == 'D') //// if already coming from a deletion
                 {
@@ -132,10 +121,10 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
             }
             else if (r_dp > 0 && c_dp == 0 && dpd[v][r][c].s == -1) //// first base of positive diagonals (insertion)
             {
-                r_prev = get_row(diag_row_map, v, d - 1, 0);           //// row of diagonal above
+                r_prev = get_row(diag_row_map, v, d - 1);              //// row of diagonal above
                 c_prev = get_col(diag_off, v, r_dp - 1, c_dp, r_prev); //// column of the DP matrix's above cell (taking the offset into account)
                 dpd[v][r][c].s = dpd[v][r_prev][c_prev].s + 1;         //// add 1 to the distance of the first base of the diagonal above
-                fprintf(stdout, "[DEBUG] Insertion: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r, c, dpd[v][r][c].s, v, r_prev, c_prev, dpd[v][r_prev][c_prev].s);
+                fprintf(stdout, "[DEBUG] Expansion (I): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_dp - 1, c_dp, dpd[v][r][c].s, v, r_dp, c_dp, dpd[v][r_prev][c_prev].s);
 
                 if (dpd[v][r_prev][c_prev].op[dpd[v][r_prev][c_prev].l - 1] == 'I') //// if already coming from an insertion
                 {
@@ -170,8 +159,8 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
                 }
 
                 dpd[v][r][c].l++; //// now l stands for the length
-            }
-            else if (r_dp > 0 && c_dp > 0 && dpd[v][r][c - 1].s > -1) //// central cells (TODO: this is to be fixed wrt diag_off: c - 1 negative, even if strangely no SEGFAULT)
+            }*/
+            else if (r_dp > 0 && c_dp > diag_off[v][r]) //// central cells with some other cell preceding them along the diagonal
             {
                 if ((int32_t)dpd[v][r].size() <= c) //// check if the column has still to be allocated
                 {
@@ -188,7 +177,7 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
                     }
 
                     dpd[v][r][c].s = dpd[v][r][c - 1].s;
-                    fprintf(stdout, "[DEBUG] Extension: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r, c - 1, dpd[v][r][c - 1].s, v, r, c, dpd[v][r][c].s);
+                    fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v, r_dp, c_dp, dpd[v][r][c].s);
 
                     if (dpd[v][r][c - 1].op[dpd[v][r][c - 1].l - 1] == '=') //// if already coming from a match
                     {
@@ -232,7 +221,7 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
                         free(dpd[v][r][c].bl);
                     }
                     dpd[v][r][c].s = dpd[v][r][c - 1].s + 1; //// !!!
-                    fprintf(stdout, "[DEBUG] Extension: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r, c - 1, dpd[v][r][c - 1].s, v, r, c, dpd[v][r][c].s);
+                    fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v, r_dp, c_dp, dpd[v][r][c].s);
 
                     if (dpd[v][r][c - 1].op[dpd[v][r][c - 1].l - 1] == 'X') //// if already coming from a mismatch
                     {
@@ -274,7 +263,7 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
 }
 
 //// DP matrix expansion (within same vertex)
-void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<int32_t> &v_off, vector<vector<int32_t>> &diag_off, int32_t v, int32_t d, int32_t k, char ed)
+void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t v, int32_t d, int32_t k, char ed)
 {
     int32_t r, r_old, r_dp, c, c_old, c_dp, d_new, off = 0;
 
@@ -283,20 +272,26 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
         d_new = d - 1;
         r_dp = k + d;
         c_dp = k + 1;
-        off = k;
+        if (r_dp < 0 || c_dp <= 0)
+            return;
+        off = min(r_dp, c_dp);
     }
     else if (ed == 'X') //// mismatch
     {
         d_new = d;
         r_dp = k + d + 1;
         c_dp = k + 1;
+        if (r_dp < 0 || c_dp < 0)
+            return;
     }
     else if (ed == 'I') //// insertion
     {
         d_new = d + 1;
         r_dp = k + d + 1;
         c_dp = k;
-        off = k;
+        if (r_dp <= 0 || c_dp < 0)
+            return;
+        off = min(r_dp, c_dp);
     }
 
     if (ed != 'X' && diag_row_map[v].count(d_new) == 0) //// check whether the diagonal has already been assigned to a row
@@ -305,9 +300,9 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
         diag_row_map[v].insert({d_new, ((int32_t)dpd[v].size() - 1)});                       //// add mapping to diag_row_map[v]
         diag_off[v].push_back(off);                                                          //// add row's offset to diag_off[v]
     }
-    r_old = get_row(diag_row_map, v, d, 0);        //// row of the diagonal we are coming from
+    r_old = get_row(diag_row_map, v, d);           //// row of the diagonal we are coming from
     c_old = get_col(diag_off, v, d + k, k, r_old); //// column of the diagonal we are coming from (possibly decreased by its row's offset)
-    r = get_row(diag_row_map, v, d_new, 0);
+    r = get_row(diag_row_map, v, d_new);
     c = get_col(diag_off, v, r_dp, c_dp, r);
 
     if ((int32_t)dpd[v][r].size() <= c) //// check whether the column is already there or not
@@ -316,10 +311,10 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
     }
 
     //// mismatch only: mismatch at very first base comparison
-    if (ed == 'X' && v == 0 && r == 0 && c == 0)
+    if (ed == 'X' && v == 0 && d == 0 && k == -1)
     {
         dpd[v][r][c].s = 1; //// Right now, s == 0
-        fprintf(stdout, "[DEBUG] Starting mismatch: [%d][%d][%d] = %d\n", v, r, c, dpd[v][r][c].s);
+        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v, r_dp, c_dp, dpd[v][r][c].s);
 
         dpd[v][r][c].op = (char *)malloc(sizeof(char));
         dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
@@ -341,7 +336,7 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
         }
 
         dpd[v][r][c].s = dpd[v][r_old][c_old].s + 1;
-        fprintf(stdout, "[DEBUG] Expansion: [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_old, c_old, dpd[v][r_old][c_old].s, v, r, c, dpd[v][r][c].s);
+        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v, d + k, k, dpd[v][r_old][c_old].s, v, r_dp, c_dp, dpd[v][r][c].s);
 
         if (dpd[v][r_old][c_old].op[dpd[v][r_old][c_old].l - 1] == ed) //// if same edit
         {
@@ -380,24 +375,23 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
 }
 
 //// DP matrix data structures setup when a new vertex is visited
-void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<int32_t> &v_off, vector<vector<int32_t>> &diag_off, int32_t w, int32_t d, int32_t r_dp, int32_t c_dp, int32_t &r, int32_t &c)
+void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t w, int32_t d, int32_t r_dp, int32_t c_dp, int32_t &r, int32_t &c)
 {
     if (v_map.count(w) == 0) //// check whether the DP already contains the vertex
     {
         v_map[w] = v_map.size();
         dpd.push_back(vector<vector<gwf_cigar_t>>(1, vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})));
-        v_off.push_back(r_dp);
-        diag_row_map.push_back({{d + v_off[v_map[w]], 0}}); //// new vertex, with diagonal $d plus its offset mapped to row 0
-        diag_off.push_back(vector<int32_t>(1, 0));          //// new vertex, with offset 0 (as we are directly extending to the vertex label) for its first row (0)
+        diag_row_map.push_back({{d, 0}});          //// new vertex, with diagonal $d plus its offset mapped to row 0
+        diag_off.push_back(vector<int32_t>(1, 0)); //// new vertex, with offset 0 (as we are directly extending to the vertex label) for its first row (0)
     }
-    else if (diag_row_map[v_map[w]].count(d + v_off[v_map[w]]) == 0) //// check whether the diagonal has already been assigned to a row
+    else if (diag_row_map[v_map[w]].count(d) == 0) //// check whether the diagonal has already been assigned to a row
     {
         dpd[v_map[w]].push_back(vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})); //// add row to dpd[v]
-        diag_row_map[v_map[w]].insert({d + v_off[v_map[w]], ((int32_t)dpd[v_map[w]].size() - 1)});  //// add mapping to diag_row_map[v]
+        diag_row_map[v_map[w]].insert({d, ((int32_t)dpd[v_map[w]].size() - 1)});                    //// add mapping to diag_row_map[v]
         diag_off[v_map[w]].push_back(0);
     }
-    r = get_row(diag_row_map, v_map[w], d, v_off[v_map[w]]); // diag_row_map[v_map[w]][d + v_off[v_map[w]]];
-    c = get_col(diag_off, v_map[w], r_dp, c_dp, r);          // min(r_dp, c_dp) - diag_off[v_map[w]][r];
+    r = get_row(diag_row_map, v_map[w], d);
+    c = get_col(diag_off, v_map[w], r_dp, c_dp, r);
 
     if ((int32_t)dpd[v_map[w]][r].size() <= c) //// check whether the column is already there or not
     {
