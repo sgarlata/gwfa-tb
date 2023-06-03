@@ -2,7 +2,7 @@ CC=			gcc
 CXX=		g++
 CFLAGS=		-g -Wall -O0
 CXXFLAGS=	-g -Wall -O0 -std=c++17
-CPPFLAGS=	-DGWF_DEBUG
+CPPFLAGS=	-DGWF_DEBUG -DDP_DEBUG
 
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o

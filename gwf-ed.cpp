@@ -511,8 +511,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 
 		//// EXTENSION
-		if (k >= 0 && diag_row_map[v].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
-			dp_extend(dpd, diag_row_map, diag_off, v_map[v], d, prev_k, k);
+		if (k >= 0 && diag_row_map[v_map[v]].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
+			dp_extend(dpd, diag_row_map, diag_off, v, v_map[v], d, prev_k, k);
 
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -528,24 +528,24 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t);
 			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t);
 
-			if (diag_row_map[v].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
+			if (diag_row_map[v_map[v]].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
 			{
 				if (v == 0 && d == 0 && k == -1) //// mismatch at first comparison
 				{
-					dp_expand(dpd, diag_row_map, diag_off, v_map[v], d, k, 'X'); //// mismatch
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'X'); //// mismatch
 				}
 
 				if (d + k >= 0 && k >= 0)
 				{
-					dp_expand(dpd, diag_row_map, diag_off, v_map[v], d, k, 'D'); //// deletion
-					dp_expand(dpd, diag_row_map, diag_off, v_map[v], d, k, 'X'); //// mismatch
-					dp_expand(dpd, diag_row_map, diag_off, v_map[v], d, k, 'I'); //// insertion
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'D'); //// deletion
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'X'); //// mismatch
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'I'); //// insertion
 				}
 			}
 		}
-		else if (i + 1 < ql)															  //// NEW VERTEX
-		{																				  // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
-			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1; //// $nv: number of v's neighbors
+		else if (i + 1 < ql) //// NEW VERTEX
+		{					 // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
+			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1;
 			gwf_intv_t *p;
 			kv_pushp(gwf_intv_t, buf->km, buf->tmp, &p);
 			p->vd0 = gwf_gen_vd(v, d), p->vd1 = p->vd0 + 1;
@@ -554,14 +554,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			for (j = 0; j < nv; ++j)
 			{											 // traverse $v's neighbors
 				uint32_t w = (uint32_t)g->arc[ov + j].a; // $w is next to $v
-				int32_t ol = g->arc[ov + j].o;
+				int32_t ol = g->arc[ov + j].o;			 //// overlap
 				int absent;
 				gwf_set64_put(buf->ha, (uint64_t)w << 32 | (i + 1), &absent); // test if ($w,$i) has been visited
 				if (q[i + 1] == g->seq[w][ol])								  // can be extended to the next vertex without a mismatch
 				{															  //// EXTENSION ACROSS VERTICES
-					++n_ext;
+					++n_ext;												  //// number of possible extensions
 					if (absent)
-					{
+					{ //// TODO: add overlap support
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
@@ -617,7 +617,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 							}
 
 							dpd[v_to][r][c].l++; //// now l stands for the length
-							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_from, i, k, dpd[w][r][c].s, v_to, r_dp, c_dp, dpd[w][r][c].s);
+#ifdef DP_DEBUG
+							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_to][r][c].s);
+#endif
 						}
 					}
 				}
@@ -676,7 +678,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						}
 
 						dpd[v_to][r][c].l++; //// now l stands for the length
-						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_from, i, k, dpd[v_from][r_from][c_from].s, v_to, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+#ifdef DP_DEBUG
+						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+#endif
 					}
 
 					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's (mismatch)
@@ -731,7 +735,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						}
 
 						dpd[v_to][r][c].l++; //// now l stands for the length
-						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_from, i, k, dpd[v_from][r_from][c_from].s, v_to, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+#ifdef DP_DEBUG
+						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+#endif
 					}
 				}
 			}
@@ -740,7 +746,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 				r_dp = d + 1 + k;
 				c_dp = k;
-				dp_expand(dpd, diag_row_map, diag_off, v_map[v], d, k, 'I');
+				dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'I');
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
@@ -758,7 +764,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 			r_dp = d + k;
 			c_dp = k + 1;
-			dp_expand(dpd, diag_row_map, diag_off, v_map[v], d, k, 'D');
+			dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'D');
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
@@ -969,6 +975,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		}
 	}
 
+#ifdef DP_DEBUG
 	/// TMP PRINT
 	fprintf(stdout, "***\n[DPD]\n");
 	for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)
@@ -984,6 +991,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		}
 		fprintf(stdout, "***\n");
 	}
+#endif
 
 	//// FREE DP MATRIX
 	for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)

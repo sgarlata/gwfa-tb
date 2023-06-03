@@ -50,7 +50,7 @@ dp_check_cell(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_c
 }
 
 //// DP matrix extension (within same vertex)
-void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t v, int32_t d, int32_t prev_k, int32_t k)
+void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t v_dp, int32_t v, int32_t d, int32_t prev_k, int32_t k)
 {
     int32_t r, c, r_dp, c_dp, r_prev, c_prev;
 
@@ -65,7 +65,9 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
             if (v == 0 && d == 0 && c == 0 && dpd[v][r][c].s == -1) //// dpd[0][0][0]: first match
             {
                 dpd[v][r][c].s = 0;
-                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r_dp, c_dp, dpd[v][r][c].s);
+#ifdef DP_DEBUG
+                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, dpd[v][r][c].s);
+#endif
 
                 dpd[v][r][c].op = (char *)malloc(sizeof(char));
                 dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
@@ -177,7 +179,9 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
                     }
 
                     dpd[v][r][c].s = dpd[v][r][c - 1].s;
-                    fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v, r_dp, c_dp, dpd[v][r][c].s);
+#ifdef DP_DEBUG
+                    fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
+#endif
 
                     if (dpd[v][r][c - 1].op[dpd[v][r][c - 1].l - 1] == '=') //// if already coming from a match
                     {
@@ -220,8 +224,10 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
                         free(dpd[v][r][c].op);
                         free(dpd[v][r][c].bl);
                     }
-                    dpd[v][r][c].s = dpd[v][r][c - 1].s + 1; //// !!!
-                    fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v, r_dp, c_dp, dpd[v][r][c].s);
+                    dpd[v][r][c].s = dpd[v][r][c - 1].s + 1;
+#ifdef DP_DEBUG
+                    fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
+#endif
 
                     if (dpd[v][r][c - 1].op[dpd[v][r][c - 1].l - 1] == 'X') //// if already coming from a mismatch
                     {
@@ -263,7 +269,7 @@ void dp_extend(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
 }
 
 //// DP matrix expansion (within same vertex)
-void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t v, int32_t d, int32_t k, char ed)
+void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, int32_t v_dp, int32_t v, int32_t d, int32_t k, char ed)
 {
     int32_t r, r_old, r_dp, c, c_old, c_dp, d_new, off = 0;
 
@@ -314,7 +320,9 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
     if (ed == 'X' && v == 0 && d == 0 && k == -1)
     {
         dpd[v][r][c].s = 1; //// Right now, s == 0
-        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v, r_dp, c_dp, dpd[v][r][c].s);
+#ifdef DP_DEBUG
+        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, dpd[v][r][c].s);
+#endif
 
         dpd[v][r][c].op = (char *)malloc(sizeof(char));
         dpd[v][r][c].bl = (int32_t *)malloc(sizeof(int32_t));
@@ -336,7 +344,9 @@ void dp_expand(vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<in
         }
 
         dpd[v][r][c].s = dpd[v][r_old][c_old].s + 1;
-        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v, d + k, k, dpd[v][r_old][c_old].s, v, r_dp, c_dp, dpd[v][r][c].s);
+#ifdef DP_DEBUG
+        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, dpd[v][r_old][c_old].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
+#endif
 
         if (dpd[v][r_old][c_old].op[dpd[v][r_old][c_old].l - 1] == ed) //// if same edit
         {
@@ -381,7 +391,7 @@ void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_
     {
         v_map[w] = v_map.size();
         dpd.push_back(vector<vector<gwf_cigar_t>>(1, vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})));
-        diag_row_map.push_back({{d, 0}});          //// new vertex, with diagonal $d plus its offset mapped to row 0
+        diag_row_map.push_back({{d, 0}});          //// new vertex, with diagonal $d to row 0
         diag_off.push_back(vector<int32_t>(1, 0)); //// new vertex, with offset 0 (as we are directly extending to the vertex label) for its first row (0)
     }
     else if (diag_row_map[v_map[w]].count(d) == 0) //// check whether the diagonal has already been assigned to a row
