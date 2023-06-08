@@ -24,7 +24,7 @@ void gwf_ed_index_arc_core(uint64_t *idx, uint32_t n_vtx, uint32_t n_arc, gwf_ar
 		{
 			uint32_t v = arc[st].a >> 32;
 			assert(v < n_vtx);
-			idx[v] = (uint64_t)st << 32 | (i - st);
+			idx[v] = (uint64_t)st << 32 | (i - st); //// TODO: look here to understand what aux is
 			st = i;
 		}
 	}
@@ -561,7 +561,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				{															  //// EXTENSION ACROSS VERTICES
 					++n_ext;												  //// number of possible extensions
 					if (absent)
-					{ //// TODO: add overlap support
+					{ //// TODO: add overlap support (problem: overlap CIGAR doesn't differentiate between = and X, as they are both considered M)
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
@@ -917,7 +917,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.t.a);
 
 	//// STORE DP MATRIX TO CSV FILE
-	if (ql < 1000) //// print file only if the query is longer than 1000 bases
+	if (ql < 500) //// print file only if the query is longer than 1000 bases
 	{
 		int32_t v, d, r, c;
 		fprintf(out_dp, "_,");

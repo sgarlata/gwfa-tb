@@ -5,8 +5,8 @@
 
 typedef struct
 {
-	uint64_t a; //// arc (probably first 32 bits for incoming vertex and last 32 bits for outgoing vertex)
-	int32_t o;	//// overlap
+	uint64_t a; //// first 32 bits for starting vertex and last 32 bits for ending vertex
+	int32_t o;	//// overlap between the two
 } gwf_arc_t;
 
 typedef struct
