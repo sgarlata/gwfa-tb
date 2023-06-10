@@ -455,7 +455,7 @@ extern inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_
 extern inline int32_t get_col(vector<vector<int32_t>> &diag_off, int32_t v, int32_t r_dp, int32_t c_dp, int32_t r);
 
 // wfa_extend and wfa_next combined
-static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off)
+static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<gwf_cigar_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, vector<vector<int32_t>> &diag_off, FILE *out_debug)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -512,7 +512,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 		//// EXTENSION
 		if (k >= 0 && diag_row_map[v_map[v]].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
-			dp_extend(dpd, diag_row_map, diag_off, v, v_map[v], d, prev_k, k);
+			dp_extend(dpd, diag_row_map, diag_off, v, v_map[v], d, prev_k, k, out_debug);
 
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -532,14 +532,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			{
 				if (v == 0 && d == 0 && k == -1) //// mismatch at first comparison
 				{
-					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'X'); //// mismatch
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'X', out_debug); //// mismatch
 				}
 
 				if (d + k >= 0 && k >= 0)
 				{
-					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'D'); //// deletion
-					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'X'); //// mismatch
-					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'I'); //// insertion
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'D', out_debug); //// deletion
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'X', out_debug); //// mismatch
+					dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'I', out_debug); //// insertion
 				}
 			}
 		}
@@ -571,10 +571,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						c_dp = ol;
 						r_from = get_row(diag_row_map, v_from, d);
 						c_from = get_col(diag_off, v_from, r_dp - 1, (int32_t)g->len[v] - 1, r_from);
-						dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c);
+						dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c); //// $r and $c get assigned here
 						v_to = v_map[w];
 
-						if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s)
+						if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s)
 						{
 							if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
 							{
@@ -618,7 +618,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 							dpd[v_to][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_to][r][c].s);
+							fprintf(out_debug, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_to][r][c].s);
 #endif
 						}
 					}
@@ -632,10 +632,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
 					c_from = get_col(diag_off, v_from, r_dp, (int32_t)g->len[v] - 1, r_from);
-					dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c);
+					dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c); //// $r and $c get assigned here
 					v_to = v_map[w];
 
-					if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
+					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
 						if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
@@ -679,7 +679,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 						dpd[v_to][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+						fprintf(out_debug, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
 #endif
 					}
 
@@ -692,7 +692,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 					dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
 
-					if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
+					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
 						if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
@@ -736,7 +736,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 						dpd[v_to][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+						fprintf(out_debug, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
 #endif
 					}
 				}
@@ -746,7 +746,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 				r_dp = d + 1 + k;
 				c_dp = k;
-				dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'I');
+				dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'I', out_debug);
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
@@ -764,7 +764,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 			r_dp = d + k;
 			c_dp = k + 1;
-			dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'D');
+			dp_expand(dpd, diag_row_map, diag_off, v, v_map[v], d, k, 'D', out_debug);
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
@@ -782,10 +782,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				c_dp = ol;
 				r_from = get_row(diag_row_map, v_from, d);
 				c_from = get_col(diag_off, v_from, r_dp, (int32_t)g->len[v] - 1, r_from);
-				dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c);
+				dp_new_vd(v_map, dpd, diag_row_map, diag_off, w, d_to, r_dp, c_dp, r, c); //// $r and $c get assigned here
 				v_to = v_map[w];
 
-				if (dpd[v_to][r][c].s == -1 || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
+				if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 				{
 					if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 					{
@@ -871,7 +871,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	unordered_map<int32_t, int32_t> v_map{{0, 0}};
 
 	//// A "diagonal-wise" DP matrix for each graph node (initially only the element [0][0][0] is allocated)
-	vector<vector<vector<gwf_cigar_t>>> dpd(1, vector<vector<gwf_cigar_t>>(1, vector<gwf_cigar_t>(1, {.s = -1, .op = NULL, .bl = NULL, .l = 0})));
+	vector<vector<vector<gwf_cigar_t>>> dpd(1, vector<vector<gwf_cigar_t>>(1, vector<gwf_cigar_t>(1, {.s = INT32_MAX, .op = NULL, .bl = NULL, .l = 0})));
 
 	//// For each graph's node v, a map to associate a diagonal to the row where it is stored in $dpd[v]
 	vector<unordered_map<int32_t, int32_t>> diag_row_map{{{0, 0}}};
@@ -881,8 +881,9 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 
 	FILE *out_dp = fopen("out/dp.csv", "w");
 	FILE *out_cig = fopen("out/cig.csv", "w");
+	FILE *out_debug = fopen("out/debug.txt", "w");
 
-	if (out_dp == NULL || out_cig == NULL)
+	if (out_dp == NULL || out_cig == NULL || out_debug == NULL)
 	{
 		fprintf(stderr, "Error opening DP file\n");
 		return 1;
@@ -899,7 +900,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
 	while (n_a > 0)
 	{
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, v_map, dpd, diag_row_map, diag_off);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, v_map, dpd, diag_row_map, diag_off, out_debug);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
 		++s; //// increase edit distance (alignment cost)
@@ -917,7 +918,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.t.a);
 
 	//// STORE DP MATRIX TO CSV FILE
-	if (ql < 500) //// print file only if the query is longer than 1000 bases
+	if (ql < 1000) //// print file only if the query is longer than 1000 bases
 	{
 		int32_t v, d, r, c;
 		fprintf(out_dp, "_,");
@@ -948,7 +949,10 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 						v = v_map[vtx];
 						r = get_row(diag_row_map, v, d);
 						c = get_col(diag_off, v, r_dp, c_dp, r);
-						fprintf(out_dp, "%d,", dpd[v][r][c].s);
+						if (dpd[v][r][c].s < INT32_MAX)
+							fprintf(out_dp, "%d,", dpd[v][r][c].s);
+						else
+							fprintf(out_dp, "%s,", "MAX");
 						for (int32_t i = 0; i < dpd[v][r][c].l; ++i)
 						{
 							fprintf(out_cig, "%d%c", dpd[v][r][c].bl[i], dpd[v][r][c].op[i]);
@@ -975,23 +979,23 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		}
 	}
 
-#ifdef DP_DEBUG
-	/// TMP PRINT
-	fprintf(stdout, "***\n[DPD]\n");
-	for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)
+	if (0) /// Temporary $dpd debug print
 	{
-		fprintf(stdout, "Vertex %d\n", v_map[v]);
-		for (int32_t i = 0; i < (int32_t)dpd[v].size(); ++i)
+		fprintf(stdout, "***\n[DPD]\n");
+		for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)
 		{
-			for (int32_t j = 0; j < (int32_t)dpd[v][i].size(); ++j)
+			fprintf(stdout, "Vertex %d\n", v_map[v]);
+			for (int32_t i = 0; i < (int32_t)dpd[v].size(); ++i)
 			{
-				fprintf(stdout, "%d,", dpd[v][i][j].s);
+				for (int32_t j = 0; j < (int32_t)dpd[v][i].size(); ++j)
+				{
+					fprintf(stdout, "%d,", dpd[v][i][j].s);
+				}
+				fprintf(stdout, "\n");
 			}
-			fprintf(stdout, "\n");
+			fprintf(stdout, "***\n");
 		}
-		fprintf(stdout, "***\n");
 	}
-#endif
 
 	//// FREE DP MATRIX
 	for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)
@@ -1007,6 +1011,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	}
 	fclose(out_dp);
 	fclose(out_cig);
+	fclose(out_debug);
 
 	path->s = path->end_v >= 0 ? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
