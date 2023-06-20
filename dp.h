@@ -327,7 +327,7 @@ void dp_expand(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
 }
 
 //// DP matrix data structures setup when a new vertex is visited
-void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t w, int32_t w_len, int32_t d, int32_t r_dp, int32_t c_dp, int32_t &r, int32_t &c)
+void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t w, int32_t w_len, int32_t d, int32_t ol, int32_t r_dp, int32_t c_dp, int32_t &r, int32_t &c)
 {
     if (v_map.count(w) == 0) //// visiting the vertex for the first time
     {
@@ -335,16 +335,16 @@ void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<dp_c
         dpd.push_back(vector<vector<dp_cell_t>>(1, vector<dp_cell_t>(w_len, {.s = INT32_MAX, .op = NULL, .bl = NULL, .l = 0})));
         diag_row_map.push_back({{d, 0}}); //// new vertex, with diagonal $d to row 0
         r = 0;
-        c = 0;
+        c = ol;
     }
     else if (diag_row_map[v_map[w]].count(d) == 0) //// vertex already visited, but new diagonal
     {
         dpd[v_map[w]].push_back(vector<dp_cell_t>(w_len, {.s = INT32_MAX, .op = NULL, .bl = NULL, .l = 0})); //// add row to dpd[v]
         r = ((int32_t)dpd[v_map[w]].size() - 1);
         diag_row_map[v_map[w]].insert({d, r}); //// add mapping to diag_row_map[v]
-        c = 0;
+        c = ol;
     }
-    else
+    else //// vertex and diagonal already there
     {
         r = get_row(diag_row_map, v_map[w], d);
         c = get_col(r_dp, c_dp);

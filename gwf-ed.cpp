@@ -561,22 +561,22 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				{															  //// EXTENSION ACROSS VERTICES
 					++n_ext;												  //// number of extensions
 					if (absent)
-					{ //// TODO: add overlap support (problem: overlap CIGAR doesn't differentiate between = and X, as they are both considered M)
+					{
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
 						v_from = v_map[v];
 						d_to = i + 1 - ol;
 						r_dp = i + 1;
-						c_dp = 0; //// ol;
+						c_dp = ol;
 						r_from = get_row(diag_row_map, v_from, d);
 						c_from = get_col(r_dp - 1, vl - 1);
-						dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, r_dp, c_dp, r, c); //// $r and $c get assigned here
+						dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// $r and $c get assigned here
 						v_to = v_map[w];
 
 						if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s)
 						{
-							if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
+							if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
 							{
 								free(dpd[v_to][r][c].op);
 								free(dpd[v_to][r][c].bl);
@@ -629,15 +629,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's (deletion)
 					d_to = i - ol;
 					r_dp = i;
-					c_dp = 0; ////ol;
+					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
 					c_from = get_col(r_dp, vl - 1);
-					dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, r_dp, c_dp, r, c); //// $r and $c get assigned here
+					dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// $r and $c get assigned here
 					v_to = v_map[w];
 
 					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
-						if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+						if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
 							free(dpd[v_to][r][c].op);
 							free(dpd[v_to][r][c].bl);
@@ -686,15 +686,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's (mismatch)
 					d_to = i + 1 - ol;
 					r_dp = i + 1;
-					c_dp = 0; ////ol;
+					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
 					c_from = get_col(r_dp - 1, vl - 1);
 
-					dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, r_dp, c_dp, r, c); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
+					dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
 
 					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
-						if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+						if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
 							free(dpd[v_to][r][c].op);
 							free(dpd[v_to][r][c].bl);
@@ -754,6 +754,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
 			r = get_row(diag_row_map, v_map[v], d);
 			c = get_col(i, k);
+			fprintf(stdout, "SCORE: %d\n", dpd[v_map[v]][r][c].s);
 			gwf_cigar(dpd[v_map[v]][r][c]);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
@@ -781,15 +782,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				v_from = v_map[v];
 				d_to = i - ol;
 				r_dp = i;
-				c_dp = 0; ////ol;
+				c_dp = ol;
 				r_from = get_row(diag_row_map, v_from, d);
 				c_from = get_col(r_dp, vl - 1);
-				dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, r_dp, c_dp, r, c); //// $r and $c get assigned here
+				dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// $r and $c get assigned here
 				v_to = v_map[w];
 
 				if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 				{
-					if (dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+					if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 					{
 						free(dpd[v_to][r][c].op);
 						free(dpd[v_to][r][c].bl);
