@@ -82,7 +82,7 @@ void dp_extend(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
             {
                 dpd[v][r][c].s = 0;
 #ifdef DP_DEBUG
-                fprintf(out_debug, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, dpd[v][r][c].s);
+                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, dpd[v][r][c].s);
 #endif
 
                 dpd[v][r][c].op = (char *)malloc(sizeof(char));
@@ -154,7 +154,7 @@ void dp_extend(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
                     dpd[v][r][c].l++; //// now l stands for the length
 
 #ifdef DP_DEBUG
-                    fprintf(out_debug, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
+                    fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
 #endif
                 }
                 else if ((prev_k == c_dp) && (dpd[v][r][c].s == INT32_MAX || (dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s + 1))) //// TODO: make it >= if you want to give precedence to mismatches
@@ -200,7 +200,7 @@ void dp_extend(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
 
                     dpd[v][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-                    fprintf(out_debug, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
+                    fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, dpd[v][r][c - 1].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
 #endif
                 }
             }
@@ -257,7 +257,7 @@ void dp_expand(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
         dpd[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
 
 #ifdef DP_DEBUG
-        fprintf(out_debug, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, dpd[v][r][c].s);
+        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, dpd[v][r][c].s);
 #endif
         return;
     }
@@ -321,7 +321,7 @@ void dp_expand(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
         dpd[v][r][c].l++; //// now l stands for the length
 
 #ifdef DP_DEBUG
-        fprintf(out_debug, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, dpd[v][r_from][c_from].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
+        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, dpd[v][r_from][c_from].s, v_dp, r_dp, c_dp, dpd[v][r][c].s);
 #endif
     }
 }

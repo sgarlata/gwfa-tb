@@ -132,7 +132,9 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	fp = gzopen(argv[o.ind + 1], "r"); //// open file for reading
 	assert(fp);						   //// check file has opened correctly
 	ks = kseq_init(fp);				   //// parse fasta's reads
-	while (kseq_read(ks) >= 0)		   //// one read at a time
+	//// TODO: data structures set up to manage and balancingly distribute reads among threads
+	//// STRATEGY: the following while will contain code to fill such data structures, while after it an OMP parallel for will be used to run the algorithm in parallel among each thread's assigned batch
+	while (kseq_read(ks) >= 0) //// while the file still contains reads
 	{
 		int32_t s;																   //// optimal alignment cost
 		s = gwf_ed(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path); //// algorithm core

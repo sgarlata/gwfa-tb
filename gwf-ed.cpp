@@ -618,7 +618,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 							dpd[v_to][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-							fprintf(out_debug, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_to][r][c].s);
+							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_to][r][c].s);
 #endif
 						}
 					}
@@ -679,7 +679,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 						dpd[v_to][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-						fprintf(out_debug, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
 #endif
 					}
 
@@ -736,7 +736,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 						dpd[v_to][r][c].l++; //// now l stands for the length
 #ifdef DP_DEBUG
-						fprintf(out_debug, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
 #endif
 					}
 				}
