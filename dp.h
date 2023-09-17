@@ -16,16 +16,6 @@ typedef struct dp_cell_t
     int32_t l;   ////  array length
 } dp_cell_t;
 
-////  DP DIAGONAL TYPE (TODO: refactor implementation to use this -> less DSs around)
-typedef struct dp_diag_t
-{
-    int32_t v;
-    int32_t d;
-    vector<dp_cell_t> cell;
-    int32_t row;
-    int32_t off;
-} dp_diag_t;
-
 //// DIAGONAL-OFFSET -> ROW-COLUMN
 inline int32_t
 get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d)
@@ -35,11 +25,6 @@ get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_
 
 inline int32_t get_col(int32_t r_dp, int32_t c_dp)
 {
-    /* int32_t col = min(r_dp, c_dp);
-    int32_t off = diag_off[v][r];
-    int32_t column = col - off;
-    if (column < 0)
-        fprintf(stderr, "[Negative column (%d)]: Vertex = %d, r_dp = %d, c_dp = %d, off = %d\n", column, v, r_dp, c_dp, off); */
     return min(r_dp, c_dp);
 }
 
@@ -97,22 +82,15 @@ void dp_extend(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
                 dpd[v][r][c].l++; //// l is first used as index, while from now on as length (+1)
             }
             else if (c > 0) //// central cells
-            {               //// Previous condition: "r_dp > 0 && c_dp > diag_off[v][r]"
-                /* if ((int32_t)dpd[v][r].size() <= c) //// check if the column has still to be allocated
-                {
-                    dpd[v][r].push_back({.s = -1, .op = NULL, .bl = NULL, .l = 0});
-                } */
-
-                //// TODO: understand if here the for is needed
-                /* int32_t c_start = (int32_t)dpd[v][r].size() - 1;
-                for (int32_t i = 0; i < (c - c_start); ++i) //// add as many columns up to $c, if empty they will be later filled during $d_to's extension
-                    dpd[v][r].push_back({.s = INT32_MAX, .op = NULL, .bl = NULL, .l = 0}); */
-
+            {
                 if ((prev_k < c_dp) && (dpd[v][r][c].s == INT32_MAX || (dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s)))
                 { //// match
 
-                    if (dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s) //// update
+                    if (dpd[v][r][c].s < INT32_MAX && dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s) //// update
                     {
+#ifdef UPDATE_DEBUG
+                        fprintf(stdout, "UPDATE: M\n"); //// this is likely the only update actually happening
+#endif
                         free(dpd[v][r][c].op);
                         free(dpd[v][r][c].bl);
                     }
@@ -159,8 +137,11 @@ void dp_extend(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
                 }
                 else if ((prev_k == c_dp) && (dpd[v][r][c].s == INT32_MAX || (dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s + 1))) //// TODO: make it >= if you want to give precedence to mismatches
                 {                                                                                                                                          //// mismatch
-                    if (dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s + 1)                                                         //// update
+                    if (dpd[v][r][c].s < INT32_MAX && dpd[v][r][c - 1].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r][c - 1].s + 1)                           //// update
                     {
+#ifdef UPDATE_DEBUG
+                        fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
+#endif
                         free(dpd[v][r][c].op);
                         free(dpd[v][r][c].bl);
                     }
@@ -278,8 +259,11 @@ void dp_expand(vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int3
     //// DP and CIGAR update
     if (dpd[v][r][c].s == INT32_MAX || dpd[v][r][c].s > dpd[v][r_from][c_from].s + 1)
     {
-        if (dpd[v][r][c].s > dpd[v][r_from][c_from].s + 1) //// update
+        if (dpd[v][r][c].s < INT32_MAX && dpd[v][r][c].s > dpd[v][r_from][c_from].s + 1) //// update
         {
+#ifdef UPDATE_DEBUG
+            fprintf(stdout, "UPDATING: %c\n", ed);
+#endif
             free(dpd[v][r][c].op);
             free(dpd[v][r][c].bl);
         }

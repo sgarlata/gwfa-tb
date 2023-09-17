@@ -576,8 +576,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 						if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s)
 						{
-							if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
+							if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
 							{
+#ifdef UPDATE_DEBUG
+								fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
+#endif
 								free(dpd[v_to][r][c].op);
 								free(dpd[v_to][r][c].bl);
 							}
@@ -637,8 +640,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
-						if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+						if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
+#ifdef UPDATE_DEBUG
+							fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
+#endif
 							free(dpd[v_to][r][c].op);
 							free(dpd[v_to][r][c].bl);
 						}
@@ -694,8 +700,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 					{
-						if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+						if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 						{
+#ifdef UPDATE_DEBUG
+							fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
+#endif
 							free(dpd[v_to][r][c].op);
 							free(dpd[v_to][r][c].bl);
 						}
@@ -790,8 +799,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 				if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
 				{
-					if (dpd[v_to][r][c].s != INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+					if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
 					{
+#ifdef UPDATE_DEBUG
+						fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
+#endif
 						free(dpd[v_to][r][c].op);
 						free(dpd[v_to][r][c].bl);
 					}
@@ -879,9 +891,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	//// For each graph's node v, a map to associate a diagonal to the row where it is stored in $dpd[v]
 	vector<unordered_map<int32_t, int32_t>> diag_row_map{{{0, 0}}};
 
-	//// For each graph's node v, a vector to know how many offset columns should be considered for each row (i.e. after how many cells the diagonal starts on the DP matrix)
-	////vector<vector<int32_t>> diag_off(1, vector<int32_t>(1, 0));
-
 	FILE *out_dp = fopen("out/dp.csv", "w");
 	FILE *out_cig = fopen("out/cig.csv", "w");
 	FILE *out_debug = fopen("out/debug.txt", "w");
@@ -921,7 +930,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.t.a);
 
 	//// STORE DP MATRIX TO CSV FILE
-	if (ql < 1000) //// print file only if the query is longer than 1000 bases
+	if (ql < 1000) //// print file only if the query is shorter than 1000 bases
 	{
 		int32_t v, d, r, c;
 		fprintf(out_dp, ",,");

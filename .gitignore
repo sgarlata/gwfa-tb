@@ -1,2 +1,8 @@
 .*.swp
 *.o
+.vscode
+gwf-test
+test
+!test/t1.*
+*.csv
+out
