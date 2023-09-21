@@ -452,10 +452,9 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 
 //// Inline functions to retrieve row and column of the respective $dpd cell
 extern inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d);
-extern inline int32_t get_col(vector<vector<int32_t>> &diag_off, int32_t v, int32_t r_dp, int32_t c_dp, int32_t r);
 
 // wfa_extend and wfa_next combined
-static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<vector<dp_cell_t>>> &dpd, vector<unordered_map<int32_t, int32_t>> &diag_row_map, FILE *out_debug)
+static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<dp_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, FILE *out_debug)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -466,8 +465,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	buf->tmp.n = 0;
 	gwf_set64_clear(buf->ha);				 // hash table $h to avoid visiting a vertex twice
 	for (i = 0, x = 1; i < 32; ++i, x <<= 1) //// x left-wise-shifted by 1 bit
-		if (x >= n)							 //// $x is probably used later for the batch method used to speed up alignment -> not relevant for us
-			break;
+		break;
 	if (i < 4)
 		i = 4;								  //// $i: number of bits to initialize the queue below
 	A = kdq_init2(gwf_diag_t, buf->km, i);	  // $A is a queue
@@ -491,14 +489,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 	while (kdq_size(A)) //// while there are still diagonals to update the wavefront
 	{
-		gwf_diag_t t;				  //// single diagonal
-		uint32_t x0;				  //// anti diagonal
-		int32_t ooo, v, d, k, i, vl;  //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
-		int32_t r, c, r_from, c_from; //// next and current row and column indices
-		int32_t r_dp, c_dp;			  //// row and column in the traditional DP matrix
-		int32_t prev_k;				  //// previous offset
-		int32_t v_from, v_to;		  //// outgoing and incoming vertices
-		int32_t d_to;				  //// diagonal on the incoming vertex
+		gwf_diag_t t;				 //// single diagonal
+		uint32_t x0;				 //// anti diagonal
+		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
+		int32_t r;					 //// row (diagonal) index in wf (within same vertex)
+		int32_t r_to, r_from;		 //// next and current row index in wf (when crossing vertices)
+		int32_t r_dp, c_dp;			 //// row and column in the traditional DP matrix
+		int32_t prev_k;				 //// previous offset
+		int32_t v_from, v_to;		 //// outgoing and incoming vertices
+		int32_t d_to;				 //// diagonal on the incoming vertex
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -512,7 +511,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 		//// EXTENSION
 		if (k >= 0 && diag_row_map[v_map[v]].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
-			dp_extend(dpd, diag_row_map, v, v_map[v], d, prev_k, k, out_debug);
+			dp_extend(s, wf, diag_row_map, v, v_map[v], d, prev_k, k, out_debug);
 
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -532,14 +531,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			{
 				if (v == 0 && d == 0 && k == -1) //// mismatch at first comparison
 				{
-					dp_expand(dpd, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
+					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
 				}
 
 				if (d + k >= 0 && k >= 0)
 				{
-					dp_expand(dpd, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug); //// deletion
-					dp_expand(dpd, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
-					dp_expand(dpd, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug); //// insertion
+					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug); //// deletion
+					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
+					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug); //// insertion
 				}
 			}
 		}
@@ -570,58 +569,26 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						r_dp = i + 1;
 						c_dp = ol;
 						r_from = get_row(diag_row_map, v_from, d);
-						c_from = get_col(r_dp - 1, vl - 1);
-						dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// $r and $c get assigned here
+						dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r); //// $r and $c get assigned here
 						v_to = v_map[w];
 
-						if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s)
+						if (wf[v_to][r_to].off <= c_dp)
 						{
-							if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s) //// update
+							wf[v_to][r_to].s = wf[v_from][r_from].s;
+
+							if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != '=') //// if empty or coming from different edit
 							{
-#ifdef UPDATE_DEBUG
-								fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
-#endif
-								free(dpd[v_to][r][c].op);
-								free(dpd[v_to][r][c].bl);
+								wf[v_to][r_to].op.push_back('=');
+								wf[v_to][r_to].bl.push_back(1);
+							}
+							else if (wf[v_to][r_to].op.back() == '=') //// if same edit
+							{
+								wf[v_to][r_to].bl.back()++; //// increase length
 							}
 
-							dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s;
-
-							if (dpd[v_from][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == '=') //// if already coming from a match
-							{
-								dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
-							}
-							else
-							{
-								dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
-							}
-							dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-							dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
-							if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
-							{
-								fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
-								abort();
-							}
-
-							for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
-							{
-								dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
-								dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
-							}
-
-							if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
-							{
-								dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
-							}
-							else
-							{
-								dpd[v_to][r][c].op[dpd[v_to][r][c].l] = '=';
-								dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
-							}
-
-							dpd[v_to][r][c].l++; //// now l stands for the length
+							wf[v_to][r_to].off++; //// increase the offset
 #ifdef DP_DEBUG
-							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_to][r][c].s);
+							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
 #endif
 						}
 					}
@@ -634,58 +601,26 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					r_dp = i;
 					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
-					c_from = get_col(r_dp, vl - 1);
-					dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// $r and $c get assigned here
+					dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r); //// $r and $c get assigned here
 					v_to = v_map[w];
 
-					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
+					if (wf[v_to][r_to].off <= c_dp)
 					{
-						if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+						wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
+
+						if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != '=') //// if empty or coming from different edit
 						{
-#ifdef UPDATE_DEBUG
-							fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
-#endif
-							free(dpd[v_to][r][c].op);
-							free(dpd[v_to][r][c].bl);
+							wf[v_to][r_to].op.push_back('=');
+							wf[v_to][r_to].bl.push_back(1);
+						}
+						else if (wf[v_to][r_to].op.back() == '=') //// if same edit
+						{
+							wf[v_to][r_to].bl.back()++; //// increase length
 						}
 
-						dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s + 1;
-
-						if (dpd[v_from][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == 'D') //// if already coming from a deletion
-						{
-							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
-						}
-						else
-						{
-							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
-						}
-						dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-						dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
-						if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
-						{
-							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
-							abort();
-						}
-
-						for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
-						{
-							dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
-							dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
-						}
-
-						if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
-						{
-							dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
-						}
-						else
-						{
-							dpd[v_to][r][c].op[dpd[v_to][r][c].l] = 'D';
-							dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
-						}
-
-						dpd[v_to][r][c].l++; //// now l stands for the length
+						wf[v_to][r_to].off++;
 #ifdef DP_DEBUG
-						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
 #endif
 					}
 
@@ -694,58 +629,26 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					r_dp = i + 1;
 					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
-					c_from = get_col(r_dp - 1, vl - 1);
 
-					dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
+					dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
 
-					if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
+					if (wf[v_to][r_to].off <= c_dp)
 					{
-						if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+						wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
+
+						if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != 'X') //// if empty or coming from different edit
 						{
-#ifdef UPDATE_DEBUG
-							fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
-#endif
-							free(dpd[v_to][r][c].op);
-							free(dpd[v_to][r][c].bl);
+							wf[v_to][r_to].op.push_back('X');
+							wf[v_to][r_to].bl.push_back(1);
+						}
+						else if (wf[v_to][r_to].op.back() == 'X') //// if same edit
+						{
+							wf[v_to][r_to].bl.back()++; //// increase length
 						}
 
-						dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s + 1;
-
-						if (dpd[v_from][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == 'X') //// if already coming from a mismatch
-						{
-							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
-						}
-						else
-						{
-							dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
-						}
-						dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-						dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
-						if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
-						{
-							fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
-							abort();
-						}
-
-						for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
-						{
-							dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
-							dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
-						}
-
-						if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
-						{
-							dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
-						}
-						else
-						{
-							dpd[v_to][r][c].op[dpd[v_to][r][c].l] = 'X';
-							dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
-						}
-
-						dpd[v_to][r][c].l++; //// now l stands for the length
+						wf[v_to][r_to].off++;
 #ifdef DP_DEBUG
-						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, dpd[v_from][r_from][c_from].s, w, r_dp, c_dp, dpd[v_from][r_from][c_from].s + 1);
+						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
 #endif
 					}
 				}
@@ -755,16 +658,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 				r_dp = d + 1 + k;
 				c_dp = k;
-				dp_expand(dpd, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug);
+				dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug);
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
 		{											 // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
 			r = get_row(diag_row_map, v_map[v], d);
-			c = get_col(i, k);
-			fprintf(stdout, "SCORE: %d\n", dpd[v_map[v]][r][c].s);
-			gwf_cigar(dpd[v_map[v]][r][c]);
+			fprintf(stdout, "SCORE: %d\n", wf[v_map[v]][r].s);
+			gwf_cigar(wf[v_map[v]][r]);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
@@ -774,7 +676,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 			r_dp = d + k;
 			c_dp = k + 1;
-			dp_expand(dpd, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug);
+			dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug);
 			fprintf(stderr, "[Strange point] Reached line number %d in file %s\n", __LINE__, __FILE__);
 		}
 		else if (v != v1)
@@ -793,56 +695,25 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				r_dp = i;
 				c_dp = ol;
 				r_from = get_row(diag_row_map, v_from, d);
-				c_from = get_col(r_dp, vl - 1);
-				dp_new_vd(v_map, dpd, diag_row_map, w, g->len[w], d_to, ol, r_dp, c_dp, r, c); //// $r and $c get assigned here
+				dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r_to); //// $r and $c get assigned here
 				v_to = v_map[w];
 
-				if (dpd[v_to][r][c].s == INT32_MAX || dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1)
+				if (wf[v_to][r_to].off <= c_dp)
 				{
-					if (dpd[v_to][r][c].s < INT32_MAX && dpd[v_to][r][c].s > dpd[v_from][r_from][c_from].s + 1) //// update
+
+					wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
+
+					if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != 'X') //// if empty or coming from different edit
 					{
-#ifdef UPDATE_DEBUG
-						fprintf(stdout, "UPDATING (line number %d in file %s)\n", __LINE__, __FILE__);
-#endif
-						free(dpd[v_to][r][c].op);
-						free(dpd[v_to][r][c].bl);
+						wf[v_to][r_to].op.push_back('X');
+						wf[v_to][r_to].bl.push_back(1);
+					}
+					else if (wf[v_to][r_to].op.back() == 'X') //// if same edit
+					{
+						wf[v_to][r_to].bl.back()++; //// increase length
 					}
 
-					dpd[v_to][r][c].s = dpd[v_from][r_from][c_from].s + 1;
-
-					if (dpd[v][r_from][c_from].op[dpd[v_from][r_from][c_from].l - 1] == 'D') //// if already coming from a deletion
-					{
-						dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l - 1; //// keep same length, but decrese it for the moment to use it as index
-					}
-					else
-					{
-						dpd[v_to][r][c].l = dpd[v_from][r_from][c_from].l; //// previous length + 1 to store the additional operation
-					}
-					dpd[v_to][r][c].op = (char *)malloc((dpd[v_to][r][c].l + 1) * sizeof(char)); //// + 1 as l still stands for the index at the moment
-					dpd[v_to][r][c].bl = (int32_t *)malloc((dpd[v_to][r][c].l + 1) * sizeof(int32_t));
-					if (dpd[v_to][r][c].op == NULL || dpd[v_to][r][c].bl == NULL)
-					{
-						fprintf(stderr, "Allocation error at line number %d in file %s\n", __LINE__, __FILE__);
-						abort();
-					}
-
-					for (int32_t i = 0; i < dpd[v_from][r_from][c_from].l; ++i) //// copy
-					{
-						dpd[v_to][r][c].op[i] = dpd[v_from][r_from][c_from].op[i];
-						dpd[v_to][r][c].bl[i] = dpd[v_from][r_from][c_from].bl[i];
-					}
-
-					if (dpd[v_to][r][c].l == dpd[v_from][r_from][c_from].l - 1) //// kept same length
-					{
-						dpd[v_to][r][c].bl[dpd[v_to][r][c].l]++; //// just increment
-					}
-					else
-					{
-						dpd[v_to][r][c].op[dpd[v_to][r][c].l] = 'D';
-						dpd[v_to][r][c].bl[dpd[v_to][r][c].l] = 1;
-					}
-
-					dpd[v_to][r][c].l++; //// now l stands for the length
+					wf[v_to][r_to].off++;
 				}
 			}
 		}
@@ -885,8 +756,8 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	//// A map to associate each vertex ID to the index it is referred to within the data structures (i.e., visiting order)
 	unordered_map<int32_t, int32_t> v_map{{v0, 0}};
 
-	//// A "diagonal-wise" DP matrix for each graph node
-	vector<vector<vector<dp_cell_t>>> dpd(1, vector<vector<dp_cell_t>>(1, vector<dp_cell_t>((int32_t)g->len[v0], {.s = INT32_MAX, .op = NULL, .bl = NULL, .l = 0})));
+	//// For each node, a vector with all the wavefronts of the node's diagonals
+	vector<vector<dp_diag_t>> wf(1, vector<dp_diag_t>(1, {.s = INT32_MAX, .op = {}, .bl = {}, .off = 0}));
 
 	//// For each graph's node v, a map to associate a diagonal to the row where it is stored in $dpd[v]
 	vector<unordered_map<int32_t, int32_t>> diag_row_map{{{0, 0}}};
@@ -912,7 +783,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
 	while (n_a > 0)
 	{
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, v_map, dpd, diag_row_map, out_debug);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, v_map, wf, diag_row_map, out_debug);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
 		++s; //// increase edit distance (alignment cost)
@@ -929,99 +800,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.swap.a);
 	kfree(km, buf.t.a);
 
-	//// STORE DP MATRIX TO CSV FILE
-	if (ql < 1000) //// print file only if the query is shorter than 1000 bases
-	{
-		int32_t v, d, r, c;
-		fprintf(out_dp, ",,");
-
-		for (int32_t v = 0; v < (int32_t)g->n_vtx; ++v) //// for each vertex
-		{
-			for (int32_t l = 0; l < (int32_t)g->len[v]; ++l) //// for each vertex base
-			{
-				fprintf(out_dp, "%c,", g->seq[v][l]); //// vertex label
-			}
-			if (v < (int32_t)g->n_vtx - 1)
-				fprintf(out_dp, ","); //|,");
-		}
-		fprintf(out_dp, "\n");
-
-		for (int32_t r_dp = 0; r_dp < ql; ++r_dp) //// for each query base
-		{
-			fprintf(out_dp, "%c,", q[r_dp]);
-			fprintf(out_dp, ",");
-			for (int32_t vtx = 0; vtx < (int32_t)g->n_vtx; ++vtx) //// for each vertex
-			{
-				for (int32_t c_dp = 0; c_dp < (int32_t)g->len[vtx]; ++c_dp) //// for each vertex base
-				{
-					//// single cell management here
-					d = r_dp - c_dp; //// diagonal from row and column of the traditional DP matrix
-
-					if (dp_check_cell(v_map, dpd, diag_row_map, vtx, d, c_dp)) //// cell present
-					{
-						v = v_map[vtx];
-						r = get_row(diag_row_map, v, d);
-						c = get_col(r_dp, c_dp);
-						if (dpd[v][r][c].s < INT32_MAX)
-							fprintf(out_dp, "%d,", dpd[v][r][c].s);
-						else
-							fprintf(out_dp, ","); //%s,", "MAX");
-						for (int32_t i = 0; i < dpd[v][r][c].l; ++i)
-						{
-							fprintf(out_cig, "%d%c", dpd[v][r][c].bl[i], dpd[v][r][c].op[i]);
-						}
-						fprintf(out_cig, ",");
-					}
-					else
-					{
-						fprintf(out_dp, ",");
-						fprintf(out_cig, ",");
-					}
-				}
-				if (vtx < (int32_t)g->n_vtx - 1)
-				{
-					fprintf(out_dp, ",");  //|,");
-					fprintf(out_cig, ","); //|,");
-				}
-			}
-			if (r_dp < ql - 1)
-			{
-				fprintf(out_dp, "\n");
-				fprintf(out_cig, "\n");
-			}
-		}
-	}
-
-	if (0) /// Temporary $dpd debug print
-	{
-		fprintf(stdout, "***\n[DPD]\n");
-		for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)
-		{
-			fprintf(stdout, "Vertex %d\n", v_map[v]);
-			for (int32_t i = 0; i < (int32_t)dpd[v].size(); ++i)
-			{
-				for (int32_t j = 0; j < (int32_t)dpd[v][i].size(); ++j)
-				{
-					fprintf(stdout, "%d,", dpd[v][i][j].s);
-				}
-				fprintf(stdout, "\n");
-			}
-			fprintf(stdout, "***\n");
-		}
-	}
-
-	//// FREE DP MATRIX
-	for (int32_t v = 0; v < (int32_t)dpd.size(); ++v)
-	{
-		for (int32_t i = 0; i < (int32_t)dpd[v].size(); ++i)
-		{
-			for (int32_t j = 0; j < (int32_t)dpd[v][i].size(); ++j)
-			{
-				free(dpd[v][i][j].op);
-				free(dpd[v][i][j].bl);
-			}
-		}
-	}
 	fclose(out_dp);
 	fclose(out_cig);
 	fclose(out_debug);
