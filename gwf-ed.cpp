@@ -4,7 +4,7 @@
 #include "gwfa.h"
 #include "kalloc.h"
 #include "ksort.h"
-#include "dp.h"
+#include "tb.h"
 
 /**********************
  * Indexing the graph *
@@ -454,7 +454,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 extern inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d);
 
 // wfa_extend and wfa_next combined
-static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<dp_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, FILE *out_debug)
+static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, FILE *out_debug)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -511,7 +511,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 		//// EXTENSION
 		if (k >= 0 && diag_row_map[v_map[v]].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
-			dp_extend(s, wf, diag_row_map, v, v_map[v], d, prev_k, k, out_debug);
+			tb_extend(s, wf, diag_row_map, v, v_map[v], d, prev_k, k, out_debug);
 
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -531,14 +531,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			{
 				if (v == 0 && d == 0 && k == -1) //// mismatch at first comparison
 				{
-					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
 				}
 
 				if (d + k >= 0 && k >= 0)
 				{
-					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug); //// deletion
-					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
-					dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug); //// insertion
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug); //// deletion
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug); //// insertion
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
 				}
 			}
 		}
@@ -587,8 +587,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 							}
 
 							wf[v_to][r_to].off++; //// increase the offset
-#ifdef DP_DEBUG
+#ifdef TB_DEBUG
 							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
+							print_curr_cigar(wf);
 #endif
 						}
 					}
@@ -619,8 +620,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						}
 
 						wf[v_to][r_to].off++;
-#ifdef DP_DEBUG
+#ifdef TB_DEBUG
 						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
+						print_curr_cigar(wf);
 #endif
 					}
 
@@ -647,8 +649,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						}
 
 						wf[v_to][r_to].off++;
-#ifdef DP_DEBUG
+#ifdef TB_DEBUG
 						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
+						print_curr_cigar(wf);
 #endif
 					}
 				}
@@ -658,7 +661,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 				r_dp = d + 1 + k;
 				c_dp = k;
-				dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug);
+				tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug);
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
@@ -676,12 +679,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 			r_dp = d + k;
 			c_dp = k + 1;
-			dp_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug);
-			fprintf(stderr, "[Strange point] Reached line number %d in file %s\n", __LINE__, __FILE__);
+			tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug);
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
-			fprintf(stderr, "[Strange point] Reached line number %d in file %s\n", __LINE__, __FILE__);
 			int32_t ov = g->aux[v] >> 32, nv = (int32_t)g->aux[v], j, tw = -1;
 			if (traceback)
 				tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
@@ -700,7 +701,6 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 				if (wf[v_to][r_to].off <= c_dp)
 				{
-
 					wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
 
 					if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != 'X') //// if empty or coming from different edit
@@ -757,7 +757,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	unordered_map<int32_t, int32_t> v_map{{v0, 0}};
 
 	//// For each node, a vector with all the wavefronts of the node's diagonals
-	vector<vector<dp_diag_t>> wf(1, vector<dp_diag_t>(1, {.s = INT32_MAX, .op = {}, .bl = {}, .off = 0}));
+	vector<vector<tb_diag_t>> wf(1, vector<tb_diag_t>(1, {.s = INT32_MAX, .op = {}, .bl = {}, .off = 0}));
 
 	//// For each graph's node v, a map to associate a diagonal to the row where it is stored in $dpd[v]
 	vector<unordered_map<int32_t, int32_t>> diag_row_map{{{0, 0}}};
