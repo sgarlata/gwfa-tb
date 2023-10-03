@@ -569,24 +569,24 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						r_dp = i + 1;
 						c_dp = ol;
 						r_from = get_row(diag_row_map, v_from, d);
-						dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r); //// $r and $c get assigned here
+						tb_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r_to, wf[v_from][r_from]); //// $r and $c get assigned here
 						v_to = v_map[w];
 
 						if (wf[v_to][r_to].off <= c_dp)
 						{
-							wf[v_to][r_to].s = wf[v_from][r_from].s;
+							wf[v_to][r_to].s = s; // wf[v_from][r_from].s;
 
-							if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != '=') //// if empty or coming from different edit
+							if (!wf[v_to][r_to].op.empty() && wf[v_to][r_to].op.back() == '=') //// if empty or coming from a match
+							{
+								wf[v_to][r_to].bl.back()++; //// just increase counter
+							}
+							else //// else, add new match
 							{
 								wf[v_to][r_to].op.push_back('=');
 								wf[v_to][r_to].bl.push_back(1);
 							}
-							else if (wf[v_to][r_to].op.back() == '=') //// if same edit
-							{
-								wf[v_to][r_to].bl.back()++; //// increase length
-							}
 
-							wf[v_to][r_to].off++; //// increase the offset
+							wf[v_to][r_to].off = c_dp;
 #ifdef TB_DEBUG
 							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
 							print_curr_cigar(wf);
@@ -602,21 +602,21 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					r_dp = i;
 					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
-					dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r); //// $r and $c get assigned here
+					tb_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r_to, wf[v_from][r_from]); //// $r gets assigned here
 					v_to = v_map[w];
 
 					if (wf[v_to][r_to].off <= c_dp)
 					{
-						wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
+						wf[v_to][r_to].s = s + 1;
 
-						if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != '=') //// if empty or coming from different edit
+						if (!wf[v_to][r_to].op.empty() && wf[v_to][r_to].op.back() == 'D') //// if already coming from a deletion
 						{
-							wf[v_to][r_to].op.push_back('=');
-							wf[v_to][r_to].bl.push_back(1);
+							wf[v_to][r_to].bl.back()++; //// just increase counter
 						}
-						else if (wf[v_to][r_to].op.back() == '=') //// if same edit
+						else //// else, add new deletion
 						{
-							wf[v_to][r_to].bl.back()++; //// increase length
+							wf[v_to][r_to].op.push_back('D');
+							wf[v_to][r_to].bl.push_back(1);
 						}
 
 						wf[v_to][r_to].off++;
@@ -632,25 +632,25 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					c_dp = ol;
 					r_from = get_row(diag_row_map, v_from, d);
 
-					dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
+					tb_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r_to, wf[v_from][r_from]); //// Vertex added with the above deletion, but still needed to in case the diagonal needs be setup
 
 					if (wf[v_to][r_to].off <= c_dp)
 					{
-						wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
+						wf[v_to][r_to].s = s + 1; ////wf[v_from][r_from].s + 1;
 
-						if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != 'X') //// if empty or coming from different edit
+						if (!wf[v_to][r_to].op.empty() && wf[v_to][r_to].op.back() == 'X') //// if already coming from a mismatch
+						{
+							wf[v_to][r_to].bl.back()++; //// just increase counter
+						}
+						else //// else, add new mismatch
 						{
 							wf[v_to][r_to].op.push_back('X');
 							wf[v_to][r_to].bl.push_back(1);
 						}
-						else if (wf[v_to][r_to].op.back() == 'X') //// if same edit
-						{
-							wf[v_to][r_to].bl.back()++; //// increase length
-						}
 
 						wf[v_to][r_to].off++;
 #ifdef TB_DEBUG
-						fprintf(stdout, "[DEBUG] Extension (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
+						fprintf(stdout, "[DEBUG] Expansion (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, s, w, r_dp, c_dp, wf[v_to][r_to].s);
 						print_curr_cigar(wf);
 #endif
 					}
@@ -696,24 +696,29 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				r_dp = i;
 				c_dp = ol;
 				r_from = get_row(diag_row_map, v_from, d);
-				dp_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r_to); //// $r and $c get assigned here
+				tb_new_vd(v_map, wf, diag_row_map, w, g->len[w], d_to, ol, r_dp, r_to, wf[v_from][r_from]); //// $r gets assigned here
 				v_to = v_map[w];
 
 				if (wf[v_to][r_to].off <= c_dp)
 				{
-					wf[v_to][r_to].s = wf[v_from][r_from].s + 1;
+					wf[v_to][r_to].s = s + 1;
 
-					if (wf[v_to][r_to].op.empty() || wf[v][r].op.back() != 'X') //// if empty or coming from different edit
+					if (!wf[v_to][r_to].op.empty() && wf[v_to][r_to].op.back() == 'D') //// if already coming from a deletion
 					{
-						wf[v_to][r_to].op.push_back('X');
-						wf[v_to][r_to].bl.push_back(1);
+						wf[v_to][r_to].bl.back()++; //// just increase counter
 					}
-					else if (wf[v_to][r_to].op.back() == 'X') //// if same edit
+					else //// else, add new deletion
 					{
-						wf[v_to][r_to].bl.back()++; //// increase length
+						wf[v_to][r_to].op.push_back('D');
+						wf[v_to][r_to].bl.push_back(1);
 					}
 
 					wf[v_to][r_to].off++;
+
+#ifdef TB_DEBUG
+					fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
+					print_curr_cigar(wf);
+#endif
 				}
 			}
 		}

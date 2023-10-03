@@ -82,7 +82,7 @@ void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
             //// MATCH OF OTHER ELEMENTS
             else if ((prev_k < c_dp) && (wf[v][r].off <= c_dp || wf[v][r].s > s))
             {
-                if (wf[v][r].s > s) //// UPDATE -> discard previous traceback and impose incoming one
+                /* if (wf[v][r].s > s) //// UPDATE -> discard previous traceback and impose incoming one
                 {
                     wf[v][r].s = s;
                     //// there's no way to recover the previous traceback, as it would have been already overwritten
@@ -99,7 +99,7 @@ void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
                             wf[v][r].bl.pop_back();
                         }
                     }
-                }
+                } */
 
                 if (!wf[v][r].op.empty() && wf[v][r].op.back() == '=') //// if already coming from a match
                 {
@@ -234,18 +234,18 @@ void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
 }
 
 //// DP matrix data structures setup when a new vertex is visited
-void dp_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t w, int32_t w_len, int32_t d, int32_t ol, int32_t r_dp, int32_t &r)
+void tb_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t w, int32_t w_len, int32_t d, int32_t ol, int32_t r_dp, int32_t &r, tb_diag_t wf_from)
 {
     if (v_map.count(w) == 0) //// visiting the vertex for the first time
     {
         v_map[w] = v_map.size();
-        wf.push_back(vector<tb_diag_t>(1, {.s = INT32_MAX, .op = {}, .bl = {}, .off = ol}));
+        wf.push_back(vector<tb_diag_t>(1, {.s = wf_from.s, .op = wf_from.op, .bl = wf_from.bl, .off = ol}));
         diag_row_map.push_back({{d, 0}}); //// new vertex, with diagonal $d to row 0
         r = 0;
     }
     else if (diag_row_map[v_map[w]].count(d) == 0) //// vertex already visited, but new diagonal
     {
-        wf[v_map[w]].push_back({INT32_MAX, {}, {}, ol}); //// add row to wf[v]
+        wf[v_map[w]].push_back({wf_from.s, wf_from.op, wf_from.bl, ol}); //// add row to wf[v]
         r = ((int32_t)wf[v_map[w]].size() - 1);
         diag_row_map[v_map[w]].insert({d, r}); //// add mapping to diag_row_map[v]
     }
