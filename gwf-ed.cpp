@@ -589,7 +589,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 							wf[v_to][r_to].off = c_dp;
 #ifdef TB_DEBUG
 							fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
-							print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+							print_tb(wf);
 #endif
 						}
 					}
@@ -622,7 +625,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						wf[v_to][r_to].off++;
 #ifdef TB_DEBUG
 						fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
-						print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+						print_tb(wf);
 #endif
 					}
 
@@ -651,7 +657,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						wf[v_to][r_to].off++;
 #ifdef TB_DEBUG
 						fprintf(stdout, "[DEBUG] Expansion (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, s, w, r_dp, c_dp, wf[v_to][r_to].s);
-						print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+						print_tb(wf);
 #endif
 					}
 				}
@@ -717,7 +726,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 #ifdef TB_DEBUG
 					fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, wf[v_from][r_from].s, w, r_dp, c_dp, wf[v_to][r_to].s);
-					print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+					print_tb(wf);
 #endif
 				}
 			}

@@ -38,9 +38,8 @@ void discard_ed(tb_diag_t &wfd)
 }
 
 //// For DEBUG purposes: print current tracebacks
-void print_curr_cigar(vector<vector<tb_diag_t>> wf)
+void print_tb(vector<vector<tb_diag_t>> wf)
 {
-    fprintf(stdout, "CURRENT CIGARS\n");
     for (int32_t i = 0; i < (int32_t)wf.size(); i++)
     {
         fprintf(stdout, "\tNode %d\n", i);
@@ -76,7 +75,10 @@ void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
                 //// offset already set to 0
 #ifdef TB_DEBUG
                 fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, wf[v][r].s);
-                print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+                print_tb(wf);
 #endif
             }
             //// MATCH OF OTHER ELEMENTS
@@ -115,7 +117,10 @@ void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
 
 #ifdef TB_DEBUG
                 fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, wf[v][r].s, v_dp, r_dp, c_dp, wf[v][r].s);
-                print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+                print_tb(wf);
 #endif
             }
         }
@@ -163,7 +168,10 @@ void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
 
 #ifdef TB_DEBUG
         fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, wf[v][r].s);
-        print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+        print_tb(wf);
 #endif
         return;
     }
@@ -191,8 +199,12 @@ void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
 
 #ifdef TB_DEBUG
             fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, s, v_dp, r_dp, c_dp, s + 1);
-            print_curr_cigar(wf);
 #endif
+
+#ifdef TB_PRINT
+            print_tb(wf);
+#endif
+
             return;
         }
     }
@@ -227,7 +239,10 @@ void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
 
 #ifdef TB_DEBUG
             fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, s, v_dp, r_dp, c_dp, s + 1);
-            print_curr_cigar(wf);
+#endif
+
+#ifdef TB_PRINT
+            print_tb(wf);
 #endif
         }
     }
