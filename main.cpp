@@ -8,8 +8,10 @@
 #include "gwfa.h"
 #include "ketopt.h"
 #include "kalloc.h"
-#include "kseq.h"	 //// part of klib, a generic standalone and lightweight C library, in particular, kseq is a generic stream buffer and a FASTA/FASTQ format parser
-#include <vector>	 ////
+#include "kseq.h" //// part of klib, a generic standalone and lightweight C library, in particular, kseq is a generic stream buffer and a FASTA/FASTQ format parser
+#include <vector> ////
+#include <time.h>
+#include <iostream>
 using namespace std; ////
 KSEQ_INIT(gzFile, gzread)
 
@@ -156,6 +158,8 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	//// TODO: data structures set up to manage and balancingly distribute reads among threads
 	//// STRATEGY: the following while will contain code to fill such data structures, while after it an OMP parallel for will be used to run the algorithm in parallel among each thread's assigned batch
 
+	clock_t before, after;
+	before = clock();
 	while (kseq_read(ks) >= 0) //// while the file still contains reads
 	{
 		int32_t s;																   //// optimal alignment cost
@@ -176,6 +180,8 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 		else
 			printf("%s\t%d\n", ks->name.s, s); //// if no traceback is requested, just display the matching
 	}
+	after = clock();
+	cout << "\nTotal alignment time: " << (double)(after - before) / CLOCKS_PER_SEC << " s" << endl;
 	kseq_destroy(ks);
 	gzclose(fp);
 	gfa_destroy(gfa);
