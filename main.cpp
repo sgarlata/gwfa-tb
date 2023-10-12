@@ -13,6 +13,15 @@
 using namespace std; ////
 KSEQ_INIT(gzFile, gzread)
 
+//// The frees for sub that were missing
+void gwf_sub_free(gfa_sub_t *sub)
+{
+	kfree(sub->km, sub->v);
+	kfree(sub->km, sub->a);
+	// km_destroy(sub->km);
+	kfree(0, sub);
+}
+
 gwf_graph_t *gwf_gfa2gwf(const gfa_t *gfa, uint32_t v0)
 {
 	int32_t i, k;
@@ -50,6 +59,10 @@ gwf_graph_t *gwf_gfa2gwf(const gfa_t *gfa, uint32_t v0)
 		}
 		assert(k <= g->n_arc);
 	}
+
+	//// Here sub is no more useful, so it should be freed
+	gwf_sub_free(sub);
+
 	return g;
 }
 

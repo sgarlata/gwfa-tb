@@ -454,7 +454,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 extern inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d);
 
 // wfa_extend and wfa_next combined
-static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, FILE *out_debug)
+static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
@@ -489,15 +489,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 	while (kdq_size(A)) //// while there are still diagonals to update the wavefront
 	{
-		gwf_diag_t t;				 //// single diagonal
-		uint32_t x0;				 //// anti diagonal
-		int32_t ooo, v, d, k, i, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
-		int32_t r;					 //// row (diagonal) index in wf (within same vertex)
-		int32_t r_to, r_from;		 //// next and current row index in wf (when crossing vertices)
-		int32_t r_dp, c_dp;			 //// row and column in the traditional DP matrix
-		int32_t prev_k;				 //// previous offset
-		int32_t v_from, v_to;		 //// outgoing and incoming vertices
-		int32_t d_to;				 //// diagonal on the incoming vertex
+		gwf_diag_t t;			  //// single diagonal
+		uint32_t x0;			  //// anti diagonal
+		int32_t ooo, v, d, k, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
+		int32_t r;				  //// row (diagonal) index in wf (within same vertex)
+		int32_t r_to, r_from;	  //// next and current row index in wf (when crossing vertices)
+		int32_t r_dp, c_dp;		  //// row and column in the traditional DP matrix
+		int32_t prev_k;			  //// previous offset
+		int32_t v_from, v_to;	  //// outgoing and incoming vertices
+		int32_t d_to;			  //// diagonal on the incoming vertex
 
 		t = *kdq_shift(gwf_diag_t, A);		//// store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -511,7 +511,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 		//// EXTENSION
 		if (k >= 0 && diag_row_map[v_map[v]].count(d)) //// if the diagonal has actually been visited yet (underlying vs DP implementation)
-			tb_extend(s, wf, diag_row_map, v, v_map[v], d, prev_k, k, out_debug);
+			tb_extend(s, wf, diag_row_map, v, v_map[v], d, prev_k, k);
 
 		//// EXPANSION
 		if (k + 1 < vl && i + 1 < ql)
@@ -531,14 +531,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			{
 				if (v == 0 && d == 0 && k == -1) //// mismatch at first comparison
 				{
-					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X'); //// mismatch
 				}
 
 				if (d + k >= 0 && k >= 0)
 				{
-					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug); //// deletion
-					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug); //// insertion
-					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X', out_debug); //// mismatch
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D'); //// deletion
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I'); //// insertion
+					tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'X'); //// mismatch
 				}
 			}
 		}
@@ -670,7 +670,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 				r_dp = d + 1 + k;
 				c_dp = k;
-				tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I', out_debug);
+				tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'I');
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
@@ -678,7 +678,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
 			r = get_row(diag_row_map, v_map[v], d);
 			fprintf(stdout, "SCORE: %d\n", wf[v_map[v]][r].s);
-			gwf_cigar(wf[v_map[v]][r]);
+			tb_cigar(wf[v_map[v]][r]);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
@@ -688,7 +688,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 			r_dp = d + k;
 			c_dp = k + 1;
-			tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D', out_debug);
+			tb_expand(s, wf, diag_row_map, v, v_map[v], vl, d, k, 'D');
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
@@ -779,16 +779,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	//// For each graph's node v, a map to associate a diagonal to the row where it is stored in $dpd[v]
 	vector<unordered_map<int32_t, int32_t>> diag_row_map{{{0, 0}}};
 
-	FILE *out_dp = fopen("out/dp.csv", "w");
-	FILE *out_cig = fopen("out/cig.csv", "w");
-	FILE *out_debug = fopen("out/debug.txt", "w");
-
-	if (out_dp == NULL || out_cig == NULL || out_debug == NULL)
-	{
-		fprintf(stderr, "Error opening DP file\n");
-		return 1;
-	}
-
 	memset(&buf, 0, sizeof(buf)); //// buffer initialization
 	buf.km = km;				  //// memory chunk, see "kalloc.c"
 	buf.ha = gwf_set64_init2(km); //// initialization of hash table for adjacency
@@ -800,7 +790,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
 	while (n_a > 0)
 	{
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, v_map, wf, diag_row_map, out_debug);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, s, v_map, wf, diag_row_map);
 		if (path->end_off >= 0 || n_a == 0)
 			break;
 		++s; //// increase edit distance (alignment cost)
@@ -816,10 +806,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kfree(km, buf.tmp.a);
 	kfree(km, buf.swap.a);
 	kfree(km, buf.t.a);
-
-	fclose(out_dp);
-	fclose(out_cig);
-	fclose(out_debug);
 
 	path->s = path->end_v >= 0 ? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1

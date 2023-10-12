@@ -56,7 +56,7 @@ void print_tb(vector<vector<tb_diag_t>> wf)
 }
 
 //// Extension for traceback (within same vertex)
-void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t d, int32_t prev_k, int32_t k, FILE *out_debug)
+void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t d, int32_t prev_k, int32_t k)
 {
     int32_t r, r_dp, c_dp;
 
@@ -128,7 +128,7 @@ void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
 }
 
 //// Expansion for traceback (within same vertex)
-void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t v_len, int32_t d, int32_t k, char ed, FILE *out_debug)
+void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t v_len, int32_t d, int32_t k, char ed)
 {
     int32_t r, r_from, r_dp, c_dp, d_to;
 
@@ -271,7 +271,7 @@ void tb_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>>
 }
 
 //// print cigar string
-void gwf_cigar(tb_diag_t cig)
+void tb_cigar(tb_diag_t cig)
 {
     fprintf(stdout, "CIGAR:\t");
     for (int32_t i = 0; i < (int32_t)cig.op.size(); ++i)

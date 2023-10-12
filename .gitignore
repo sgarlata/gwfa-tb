@@ -4,5 +4,3 @@
 gwf-test
 test
 !test/t1.*
-*.csv
-out
