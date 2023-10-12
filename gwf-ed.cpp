@@ -465,7 +465,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	buf->tmp.n = 0;
 	gwf_set64_clear(buf->ha);				 // hash table $h to avoid visiting a vertex twice
 	for (i = 0, x = 1; i < 32; ++i, x <<= 1) //// x left-wise-shifted by 1 bit
-		break;
+		if (x >= n)							 //// $x is probably used later for the batch method used to speed up alignment -> not relevant for us
+			break;
 	if (i < 4)
 		i = 4;								  //// $i: number of bits to initialize the queue below
 	A = kdq_init2(gwf_diag_t, buf->km, i);	  // $A is a queue
