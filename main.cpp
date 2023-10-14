@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 			printf("%s\t%d\n", ks->name.s, s); //// if no traceback is requested, just display the matching
 	}
 	after = clock();
-	cout << "\nTotal alignment time: " << (double)(after - before) / CLOCKS_PER_SEC << " s" << endl;
+	cout << "Total alignment time: " << (double)(after - before) / CLOCKS_PER_SEC << " s" << endl;
 	kseq_destroy(ks);
 	gzclose(fp);
 	gfa_destroy(gfa);

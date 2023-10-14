@@ -55,6 +55,13 @@ void print_tb(vector<vector<tb_diag_t>> wf)
     }
 }
 
+void tb_rmv_diag(vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d)
+{
+    int32_t r = get_row(diag_row_map, v, d);
+    wf[v].erase(wf[v].begin() + r);
+    diag_row_map[v].erase(diag_row_map[v][d]);
+}
+
 //// Extension for traceback (within same vertex)
 void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t d, int32_t prev_k, int32_t k)
 {
