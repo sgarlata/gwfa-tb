@@ -23,20 +23,6 @@ get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_
     return diag_row_map[v][d];
 }
 
-//// Discard last edit
-void discard_ed(tb_diag_t &wfd)
-{
-    if (wfd.bl.back() > 0)
-    {
-        --wfd.bl.back();
-    }
-    else
-    {
-        wfd.op.pop_back();
-        wfd.bl.pop_back();
-    }
-}
-
 //// For DEBUG purposes: print current tracebacks
 void print_tb(vector<vector<tb_diag_t>> wf)
 {
@@ -91,25 +77,6 @@ void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
             //// MATCH OF OTHER ELEMENTS
             else if ((prev_k < c_dp) && (wf[v][r].off <= c_dp || wf[v][r].s > s))
             {
-                /* if (wf[v][r].s > s) //// UPDATE -> discard previous traceback and impose incoming one
-                {
-                    wf[v][r].s = s;
-                    //// there's no way to recover the previous traceback, as it would have been already overwritten
-                    //// so, an idea could be to remove backwards one by one the new edits
-                    for (int32_t i = 0; i < wf[v][r].off - c_dp; ++i)
-                    {
-                        if (wf[v][r].bl.back() > 1)
-                        {
-                            --wf[v][r].bl.back();
-                        }
-                        else
-                        {
-                            wf[v][r].op.pop_back();
-                            wf[v][r].bl.pop_back();
-                        }
-                    }
-                } */
-
                 if (!wf[v][r].op.empty() && wf[v][r].op.back() == '=') //// if already coming from a match
                 {
                     wf[v][r].bl.back()++; //// just increase counter
