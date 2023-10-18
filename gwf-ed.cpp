@@ -337,7 +337,7 @@ static int32_t gwf_dedup(gwf_edbuf_t *buf, int32_t n_a, gwf_diag_t *a, unordered
 }
 
 // remove diagonals that lag far behind the furthest wavefront
-static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
+static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag, unordered_map<int32_t, int32_t> v_map, vector<vector<tb_diag_t>> wf, vector<unordered_map<int32_t, int32_t>> diag_row_map)
 {
 	int32_t i, j;
 	uint32_t max_x = 0;
@@ -348,6 +348,7 @@ static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
 	for (i = j = 0; i < n_a; ++i)
 		if ((a[i].xo >> 1) + max_lag >= max_x)
 			a[j++] = a[i];
+	tb_rmv_diag(wf, diag_row_map, v_map[a[j - 1].vd >> 32], (int32_t)a[j - 1].vd - GWF_DIAG_SHIFT);
 	return j;
 }
 
@@ -755,7 +756,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	if (do_dedup)
 		*n_a_ = n = gwf_dedup(buf, n, b, v_map, wf, diag_row_map);
 	if (max_lag > 0)
-		*n_a_ = n = gwf_prune(n, b, max_lag);
+		*n_a_ = n = gwf_prune(n, b, max_lag, v_map, wf, diag_row_map);
 	return b;
 }
 
