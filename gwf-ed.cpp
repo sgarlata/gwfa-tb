@@ -240,7 +240,7 @@ static int32_t gwf_diag_dedup(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *
 						max_j = j;
 			////fprintf(stdout, "[DEDUP-BEFORE] a[%d].v = %d, a[%d].d = %d, a[%d].k = %d, a[%d].xo = %u, a[%d].t = %d\n", n, a[n].vd >> 32, n, (int32_t)a[n].vd - GWF_DIAG_SHIFT, n, a[n].k, n, a[n].xo, n, a[n].t);
 			a[n++] = a[max_j];
-			tb_rmv_diag(wf, diag_row_map, v_map[a[n - 1].vd >> 32], (int32_t)a[n - 1].vd - GWF_DIAG_SHIFT);
+			////tb_rmv_diag(wf, diag_row_map, v_map[a[n - 1].vd >> 32], (int32_t)a[n - 1].vd - GWF_DIAG_SHIFT);
 			////fprintf(stdout, "[DEDUP-AFTER] a[%d].v = %d, a[%d].d = %d, a[%d].k = %d, a[%d].xo = %u, a[%d].t = %d\n", n - 1, a[n - 1].vd >> 32, n - 1, (int32_t)a[n - 1].vd - GWF_DIAG_SHIFT, n - 1, a[n - 1].k, n - 1, a[n - 1].xo, n - 1, a[n - 1].t);
 			st = i;
 		}
@@ -261,13 +261,13 @@ static int32_t gwf_mixed_dedup(int32_t n_a, gwf_diag_t *a, int32_t n_b, gwf_intv
 		else
 		{
 			a[k++] = a[i++];
-			tb_rmv_diag(wf, diag_row_map, v_map[a[k - 1].vd >> 32], (int32_t)a[k - 1].vd - GWF_DIAG_SHIFT);
+			////tb_rmv_diag(wf, diag_row_map, v_map[a[k - 1].vd >> 32], (int32_t)a[k - 1].vd - GWF_DIAG_SHIFT);
 		}
 	}
 	while (i < n_a)
 	{
 		a[k++] = a[i++];
-		tb_rmv_diag(wf, diag_row_map, v_map[a[k - 1].vd >> 32], (int32_t)a[k - 1].vd - GWF_DIAG_SHIFT);
+		////tb_rmv_diag(wf, diag_row_map, v_map[a[k - 1].vd >> 32], (int32_t)a[k - 1].vd - GWF_DIAG_SHIFT);
 	}
 
 	return k;
@@ -348,7 +348,7 @@ static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag, unordered
 	for (i = j = 0; i < n_a; ++i)
 		if ((a[i].xo >> 1) + max_lag >= max_x)
 			a[j++] = a[i];
-	tb_rmv_diag(wf, diag_row_map, v_map[a[j - 1].vd >> 32], (int32_t)a[j - 1].vd - GWF_DIAG_SHIFT);
+	////tb_rmv_diag(wf, diag_row_map, v_map[a[j - 1].vd >> 32], (int32_t)a[j - 1].vd - GWF_DIAG_SHIFT);
 	return j;
 }
 
