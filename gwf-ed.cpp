@@ -61,7 +61,7 @@ static inline uint64_t gwf_gen_vd(uint32_t v, int32_t d) //// combine v and d
 /*
  * Diagonal interval
  */
-typedef struct
+typedef struct Diagonal_Interval
 {
 	uint64_t vd0, vd1;
 } gwf_intv_t;
@@ -130,7 +130,7 @@ static size_t gwf_intv_merge2(gwf_intv_t *a, size_t n_b, const gwf_intv_t *b, si
 /*
  * Diagonal
  */
-typedef struct
+typedef struct Diagonal
 {				 // a diagonal
 	uint64_t vd; // higher 32 bits: vertex ID; lower 32 bits: diagonal+0x4000000 //// Why not split them?
 	int32_t k;	 //// wavefront position on the vertex
@@ -192,7 +192,7 @@ static void gwf_diag_sort(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *ooo)
 	int32_t i, j, k, n_b, n_c;
 	gwf_diag_t *b, *c;
 
-	kv_resize(gwf_diag_t, km, *ooo, n_a);
+	kv_resize(gwf_diag_t, km, *ooo, (size_t)n_a);
 	for (i = 0, n_c = 0; i < n_a; ++i)
 		if (a[i].xo & 1)
 			++n_c;
@@ -278,7 +278,7 @@ static int32_t gwf_mixed_dedup(int32_t n_a, gwf_diag_t *a, int32_t n_b, gwf_intv
  */
 KHASHL_MAP_INIT(KH_LOCAL, gwf_map64_t, gwf_map64, uint64_t, int32_t, kh_hash_uint64, kh_eq_generic)
 
-typedef struct
+typedef struct Trace
 {
 	int32_t v;
 	int32_t pre;
@@ -308,7 +308,7 @@ static int32_t gwf_trace_push(void *km, gwf_trace_v *a, int32_t v, int32_t pre, 
  */
 KHASHL_INIT(KH_LOCAL, gwf_set64_t, gwf_set64, uint64_t, kh_hash_dummy, kh_eq_generic)
 
-typedef struct
+typedef struct Edit_Distance_Buffer
 {
 	void *km;			  //// chunk of memory, see "kalloc.c"
 	gwf_set64_t *ha;	  // hash table for adjacency
@@ -382,7 +382,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 	return k;
 }
 
-// This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
+/* // This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
 static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t n, gwf_diag_t *a, gwf_diag_v *B,
 								kdq_t(gwf_diag_t) * A, gwf_intv_v *tmp_intv)
 {
@@ -459,7 +459,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		}
 	}
 	B->n += m;
-}
+} */
 
 //// Inline functions to retrieve row and column of the respective $dpd cell
 extern inline int32_t get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d);
@@ -469,7 +469,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// queue to keep track of the diagonals on which the wavefront can be further updated
-	gwf_diag_v B = {0, 0, 0};			   //// dynamic array of diagonals: gwf_diag_v is a typedef of kvec_t(gwf_diag_t) (paper's Q)
+	gwf_diag_v B = {0, 0, 0};			   //// kvector of diagonals: gwf_diag_v is a typedef of kvec_t(gwf_diag_t) {<number_of_elements>, <capacity of vector>, <actual_array>}
 	gwf_diag_t *b;						   //// array of diagonals to which B will be copied at the end
 
 	*end_v = *end_off = *end_tb = -1;
@@ -479,10 +479,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		if (x >= n)							 //// $x is probably used later for the batch method used to speed up alignment -> not relevant for us
 			break;
 	if (i < 4)
-		i = 4;								  //// $i: number of bits to initialize the queue below
-	A = kdq_init2(gwf_diag_t, buf->km, i);	  // $A is a queue
-	kv_resize(gwf_diag_t, buf->km, B, n * 2); //// to properly resize the queue (if not large enough)
-#if 1										  // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
+		i = 4;											//// $i: number of bits to initialize the queue below
+	A = kdq_init2(gwf_diag_t, buf->km, i);				// $A is a queue
+	kv_resize(gwf_diag_t, buf->km, B, (size_t)(n * 2)); //// to properly resize the vector (if not large enough)
+#if 1													// unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a)); //// $a is copied to $A
 #else								 // optimized for long vertices.

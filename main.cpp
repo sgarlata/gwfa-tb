@@ -52,14 +52,14 @@ gwf_graph_t *gwf_gfa2gwf(const gfa_t *gfa, uint32_t v0)
 		else
 			memcpy(g->seq[i], s->seq, len);
 		g->seq[i][len] = 0; // null terminated for convenience
-		for (j = 0; j < sub->v[i].n; ++j)
+		for (j = 0; j < (uint32_t)sub->v[i].n; ++j)
 		{
 			uint64_t a = sub->a[sub->v[i].off + j];
 			g->arc[k].a = (uint64_t)i << 32 | a >> 32;
 			g->arc[k].o = gfa->arc[(uint32_t)a].ow;
 			++k;
 		}
-		assert(k <= g->n_arc);
+		assert(k <= (int32_t)g->n_arc);
 	}
 
 	//// Here sub is no more useful, so it should be freed
@@ -71,7 +71,7 @@ gwf_graph_t *gwf_gfa2gwf(const gfa_t *gfa, uint32_t v0)
 void gwf_free(gwf_graph_t *g)
 {
 	int32_t i;
-	for (i = 0; i < g->n_vtx; ++i)
+	for (i = 0; i < (int32_t)g->n_vtx; ++i)
 		free(g->seq[i]);
 	free(g->len);
 	free(g->seq);
@@ -82,7 +82,7 @@ void gwf_free(gwf_graph_t *g)
 
 void gwf_graph_print(FILE *fp, const gwf_graph_t *g)
 {
-	int32_t i;
+	uint32_t i;
 	for (i = 0; i < g->n_vtx; ++i)
 		fprintf(fp, "S\t%d\t%s\tLN:i:%d\n", i, g->seq[i], g->len[i]);
 	for (i = 0; i < g->n_arc; ++i)
@@ -102,9 +102,9 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	uint32_t max_lag = 0;	  //// max lag behind the furthest wavefront --> related to pruning
 	void *km = 0;			  //// chunk of memory managed with kalloc, see "kalloc.c"
 	char *sname = 0;		  //// segment name
-	int n_threads = 0;		  //// OMP: number of threads to use
-	int n_reads = 0;		  //// OMP
-	vector<char> reads;		  //// OMP: vector of queries to align (the different batches to run in parallel)
+	////int n_threads = 0;		  //// OMP: number of threads to use
+	////int n_reads = 0;		  //// OMP
+	////vector<char> reads;		  //// OMP: vector of queries to align (the different batches to run in parallel)
 	//// TODO: understand whether to keep this as a vector of char or as a better type to encompass kseqs' info
 
 	while ((c = ketopt(&o, argc, argv, 1, "ptl:s:", 0)) >= 0)
@@ -117,8 +117,8 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 			sname = o.arg;
 		else if (c == 't')
 			traceback = 1;
-		else if (c == 'n') //// OMP: number of threads to use
-			n_threads = atoi(o.arg);
+		/* else if (c == 'n') //// OMP: number of threads to use
+			n_threads = atoi(o.arg); */
 	}
 	if ((!print_graph && argc - o.ind < 2) || (print_graph && argc == o.ind)) //// missing arguments
 	{
