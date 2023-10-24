@@ -6,7 +6,7 @@ CPPFLAGS=	#-DTB_DEBUG #-DTB_PRINT #-DGWF_DEBUG
 
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o
-PROG=		bin/gwf-tbwf
+PROG=		bin/gwf-bin-tbwf
 LIBS=		-lz -lpthread -lm -fopenmp
 
 ifneq ($(asan),)

@@ -7,23 +7,49 @@
 #include <unordered_map>
 using namespace std;
 
-//// DIAGONAL TYPE FOR TRACEBACK
-typedef struct tb_diag_t
-{
-    int32_t s;          //// edit distance
-    vector<char> op;    //// edits array
-    vector<int32_t> bl; //// edits number
-    int32_t off;        //// diagonal offset
-} tb_diag_t;
+// Number of bits for each field
+const int OP_BITS = 2;   // 2 bits for operations (M, X, D, I)
+const int LEN_BITS = 30; // 30 bits for the length
 
-//// DIAGONAL-OFFSET -> ROW-COLUMN
-inline int32_t
-get_row(vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d)
+// Maximum length for a CIGAR operation (2^30 - 1)
+const uint32_t MAX_OP_LEN = (1 << LEN_BITS) - 1;
+
+// Operations
+enum class CigarOperation : uint32_t
 {
-    return diag_row_map[v][d];
+    MATCH = 0,    // =
+    MISMATCH = 1, // X
+    DELETION = 2, // D
+    INSERTION = 3 // I
+};
+
+// Function to pack a CIGAR operation and length into a single 32-bit integer
+uint32_t packCigarOperation(CigarOperation operation, uint32_t length)
+{
+    if (length > MAX_OP_LEN)
+    {
+        fprintf(stderr, "CIGAR error: the length of the operation exceeds the maximum allowed.\n");
+        return 1;
+    }
+
+    return static_cast<uint32_t>(operation) << LEN_BITS | (length & MAX_OP_LEN);
 }
 
-//// For DEBUG purposes: print current tracebacks
+// Function to unpack a packed CIGAR operation into operation and length
+void unpackCigarOperation(uint32_t packedCigarOperation, CigarOperation &operation, uint32_t &length)
+{
+    operation = static_cast<CigarOperation>(packedCigarOperation >> LEN_BITS);
+    length = packedCigarOperation & MAX_OP_LEN;
+}
+
+//// DIAGONAL TYPE FOR TRACEBACK
+typedef struct TB_DIAG
+{
+    int32_t s; //// edit distance
+    vector<uint32_t> packedCigar;
+} tb_diag_t;
+
+/* //// For DEBUG purposes: print current tracebacks
 void print_tb(vector<vector<tb_diag_t>> wf)
 {
     for (int32_t i = 0; i < (int32_t)wf.size(); i++)
@@ -39,96 +65,72 @@ void print_tb(vector<vector<tb_diag_t>> wf)
             fprintf(stdout, "\n");
         }
     }
-}
-
-void tb_rmv_diag(vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v, int32_t d)
-{
-    int32_t r = get_row(diag_row_map, v, d);
-    wf[v].erase(wf[v].begin() + r);
-    diag_row_map[v].erase(diag_row_map[v][d]);
-}
+} */
 
 //// Extension for traceback (within same vertex)
-void tb_extend(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t d, int32_t prev_k, int32_t k)
+void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
-    int32_t r, r_dp, c_dp;
+    int32_t r, c;
+    CigarOperation op;
+    uint32_t len;
 
-    for (c_dp = prev_k; c_dp <= k; ++c_dp)
+    for (c = k_old; c <= k; ++c)
     {
-        r_dp = d + c_dp;            //// row in the traditional dpd matrix
-        if (r_dp >= 0 && c_dp >= 0) //// within bounds
+        if (c > k_old || diag.s > s)
         {
-            r = get_row(diag_row_map, v, d);
-
-            if (v == 0 && d == 0 && wf[v][r].s == INT32_MAX) //// MATCH OF FIRST ELEMENT
+            if (!diag.packedCigar.empty()) //// if already coming from a match
             {
-                wf[v][r].s = 0;
-                wf[v][r].op.push_back('=');
-                wf[v][r].bl.push_back(1);
-                //// offset already set to 0
-#ifdef TB_DEBUG
-                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, wf[v][r].s);
-#endif
-
-#ifdef TB_PRINT
-                print_tb(wf);
-#endif
-            }
-            //// MATCH OF OTHER ELEMENTS
-            else if ((prev_k < c_dp) && (wf[v][r].off <= c_dp || wf[v][r].s > s))
-            {
-                if (!wf[v][r].op.empty() && wf[v][r].op.back() == '=') //// if already coming from a match
-                {
-                    wf[v][r].bl.back()++; //// just increase counter
-                }
+                unpackCigarOperation(diag.packedCigar.back(), op, len);
+                if (op == CigarOperation::MATCH)
+                    len++;
                 else //// else, add new match
-                {
-                    wf[v][r].op.push_back('=');
-                    wf[v][r].bl.push_back(1);
-                }
-
-                wf[v][r].off = c_dp;
-
+                    diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
+            }
+            else //// else, add new match
+                diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
 #ifdef TB_DEBUG
-                fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_dp, r_dp - 1, c_dp - 1, wf[v][r].s, v_dp, r_dp, c_dp, wf[v][r].s);
+            int32_t r = d + c; //// row in the DP matrix
+            if (r == 0 && c == 0)
+                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, diag.s);
+            else
+                fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, diag.s, v, r, c, diag.s);
 #endif
 
 #ifdef TB_PRINT
-                print_tb(wf);
+            print_tb(wf);
 #endif
-            }
         }
     }
 }
 
 //// Expansion for traceback (within same vertex)
-void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t v_dp, int32_t v, int32_t v_len, int32_t d, int32_t k, char ed)
+void tb_expand(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k, CigarOperation op)
 {
     int32_t r, r_from, r_dp, c_dp, d_to;
 
-    if (ed == 'D') //// deletion
+    switch (op)
     {
+    case CigarOperation::DELETION:
         d_to = d - 1;
         r_dp = k + d;
         c_dp = k + 1;
         if (r_dp < 0 || c_dp <= 0)
             return;
-    }
-    else if (ed == 'X') //// mismatch
-    {
+        break;
+    case CigarOperation::MISMATCH:
         d_to = d;
         r_dp = k + d + 1;
         c_dp = k + 1;
         if (r_dp < 0 || c_dp < 0)
             return;
-    }
-    else if (ed == 'I') //// insertion
-    {
+        break;
+    case CigarOperation::INSERTION:
         d_to = d + 1;
         r_dp = k + d + 1;
         c_dp = k;
         if (r_dp <= 0 || c_dp < 0)
             return;
+        break;
     }
 
     //// mismatch at very first base comparison
@@ -222,35 +224,33 @@ void tb_expand(int32_t s, vector<vector<tb_diag_t>> &wf, vector<unordered_map<in
     }
 }
 
-//// DP matrix data structures setup when a new vertex is visited
-void tb_new_vd(unordered_map<int32_t, int32_t> &v_map, vector<vector<tb_diag_t>> &wf, vector<unordered_map<int32_t, int32_t>> &diag_row_map, int32_t w, int32_t w_len, int32_t d, int32_t ol, int32_t r_dp, int32_t &r, tb_diag_t wf_from)
-{
-    if (v_map.count(w) == 0) //// visiting the vertex for the first time
-    {
-        v_map[w] = v_map.size();
-        wf.push_back(vector<tb_diag_t>(1, {.s = wf_from.s, .op = wf_from.op, .bl = wf_from.bl, .off = ol}));
-        diag_row_map.push_back({{d, 0}}); //// new vertex, with diagonal $d to row 0
-        r = 0;
-    }
-    else if (diag_row_map[v_map[w]].count(d) == 0) //// vertex already visited, but new diagonal
-    {
-        wf[v_map[w]].push_back({wf_from.s, wf_from.op, wf_from.bl, ol}); //// add row to wf[v]
-        r = ((int32_t)wf[v_map[w]].size() - 1);
-        diag_row_map[v_map[w]].insert({d, r}); //// add mapping to diag_row_map[v]
-    }
-    else //// vertex and diagonal already there
-    {
-        r = get_row(diag_row_map, v_map[w], d);
-    }
-}
-
 //// print cigar string
-void tb_cigar(tb_diag_t cig)
+void tb_cigar(vector<uint32_t> packedCigar)
 {
+    CigarOperation op;
+    uint32_t len;
+    char opChar;
+
     fprintf(stdout, "CIGAR:\t");
-    for (int32_t i = 0; i < (int32_t)cig.op.size(); ++i)
+    for (const uint32_t packedCigarOperation : packedCigar)
     {
-        fprintf(stdout, "%d%c", cig.bl[i], cig.op[i]);
+        unpackCigarOperation(packedCigarOperation, op, len);
+        switch (op)
+        {
+        case CigarOperation::MATCH:
+            opChar = '=';
+            break;
+        case CigarOperation::MISMATCH:
+            opChar = 'X';
+            break;
+        case CigarOperation::DELETION:
+            opChar = 'D';
+            break;
+        case CigarOperation::INSERTION:
+            opChar = 'I';
+            break;
+        }
+        fprintf(stdout, "%d%c", len, opChar);
     }
     fprintf(stdout, "\n");
 }
