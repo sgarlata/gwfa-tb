@@ -1,7 +1,7 @@
 CC=			gcc
 CXX=		g++
-CFLAGS=		-g -Wall -O3
-CXXFLAGS=	-g -Wall -O3 -std=c++11
+CFLAGS=		-g -Wall -O0
+CXXFLAGS=	-g -Wall -O0 -std=c++11
 CPPFLAGS=	#-DTB_DEBUG #-DTB_PRINT #-DGWF_DEBUG
 
 INCLUDES=

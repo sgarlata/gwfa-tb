@@ -70,9 +70,10 @@ void print_tb(vector<vector<tb_diag_t>> wf)
 //// Extension for traceback (within same vertex)
 void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
-    int32_t r, c;
+    int32_t c;
     CigarOperation op;
     uint32_t len;
+    uint32_t packedCigarOperation_old;
 
     for (c = k_old; c <= k; ++c)
     {
@@ -80,9 +81,11 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
         {
             if (!diag.packedCigar.empty()) //// if already coming from a match
             {
-                unpackCigarOperation(diag.packedCigar.back(), op, len);
+                packedCigarOperation_old = diag.packedCigar.back();
+                diag.packedCigar.pop_back();
+                unpackCigarOperation(packedCigarOperation_old, op, len);
                 if (op == CigarOperation::MATCH)
-                    len++;
+                    diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
                 else //// else, add new match
                     diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
             }
@@ -103,7 +106,7 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
     }
 }
 
-//// Expansion for traceback (within same vertex)
+/* //// Expansion for traceback (within same vertex)
 void tb_expand(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k, CigarOperation op)
 {
     int32_t r, r_from, r_dp, c_dp, d_to;
@@ -222,7 +225,7 @@ void tb_expand(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k, Ciga
 #endif
         }
     }
-}
+} */
 
 //// print cigar string
 void tb_cigar(vector<uint32_t> packedCigar)
