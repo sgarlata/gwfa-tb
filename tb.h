@@ -49,31 +49,12 @@ typedef struct TB_DIAG
     vector<uint32_t> packedCigar;
 } tb_diag_t;
 
-/* //// For DEBUG purposes: print current tracebacks
-void print_tb(vector<vector<tb_diag_t>> wf)
-{
-    for (int32_t i = 0; i < (int32_t)wf.size(); i++)
-    {
-        fprintf(stdout, "\tNode %d\n", i);
-        for (int32_t j = 0; j < (int32_t)wf[i].size(); j++)
-        {
-            fprintf(stdout, "\t\tDiagonal %d: ", j);
-            for (int32_t k = 0; k < (int32_t)wf[i][j].op.size(); ++k)
-            {
-                fprintf(stdout, "%d%c", wf[i][j].bl[k], wf[i][j].op[k]);
-            }
-            fprintf(stdout, "\n");
-        }
-    }
-} */
-
 //// Extension for traceback (within same vertex)
 void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
     int32_t c;
-    CigarOperation op;
+    CigarOperation op_old;
     uint32_t len;
-    uint32_t packedCigarOperation_old;
 
     for (c = k_old; c <= k; ++c)
     {
@@ -81,11 +62,12 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
         {
             if (!diag.packedCigar.empty()) //// if already coming from a match
             {
-                packedCigarOperation_old = diag.packedCigar.back();
-                diag.packedCigar.pop_back();
-                unpackCigarOperation(packedCigarOperation_old, op, len);
-                if (op == CigarOperation::MATCH)
+                unpackCigarOperation(diag.packedCigar.back(), op_old, len);
+                if (op_old == CigarOperation::MATCH)
+                {
+                    diag.packedCigar.pop_back();
                     diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
+                }
                 else //// else, add new match
                     diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
             }
@@ -106,126 +88,62 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
     }
 }
 
-/* //// Expansion for traceback (within same vertex)
-void tb_expand(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k, CigarOperation op)
+//// Expansion for traceback (within same vertex)
+void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_new)
 {
-    int32_t r, r_from, r_dp, c_dp, d_to;
+    CigarOperation op_old;
+    uint32_t len;
+    char opChar;
+    int32_t r_old, c_old;
 
-    switch (op)
+    diag.s++;
+    if (!diag.packedCigar.empty())
     {
-    case CigarOperation::DELETION:
-        d_to = d - 1;
-        r_dp = k + d;
-        c_dp = k + 1;
-        if (r_dp < 0 || c_dp <= 0)
-            return;
+        unpackCigarOperation(diag.packedCigar.back(), op_old, len);
+        if (op_old == op_new)
+        {
+            diag.packedCigar.pop_back();
+            diag.packedCigar.push_back(packCigarOperation(op_new, ++len));
+        }
+        else
+            diag.packedCigar.push_back(packCigarOperation(op_new, 1));
+    }
+    else
+        diag.packedCigar.push_back(packCigarOperation(op_new, 1));
+
+    switch (op_new)
+    {
+    case CigarOperation::MATCH:
+        opChar = 'M';
+        r_old = r_new - 1;
+        c_old = c_new - 1;
         break;
     case CigarOperation::MISMATCH:
-        d_to = d;
-        r_dp = k + d + 1;
-        c_dp = k + 1;
-        if (r_dp < 0 || c_dp < 0)
-            return;
+        opChar = 'X';
+        r_old = r_new - 1;
+        c_old = c_new - 1;
+        break;
+    case CigarOperation::DELETION:
+        opChar = 'D';
+        r_old = r_new;
+        c_old = c_new - 1;
         break;
     case CigarOperation::INSERTION:
-        d_to = d + 1;
-        r_dp = k + d + 1;
-        c_dp = k;
-        if (r_dp <= 0 || c_dp < 0)
-            return;
+        opChar = 'I';
+        r_old = r_new - 1;
+        c_old = c_new;
         break;
     }
 
-    //// mismatch at very first base comparison
-    if (ed == 'X' && v == 0 && d == 0 && k == -1)
-    {
-        r = 0;
-        wf[v][r].s = 1; //// Right now, s == 0
-        wf[v][r].op.push_back('X');
-        wf[v][r].bl.push_back(1);
-        //// offset already set to 0
-
 #ifdef TB_DEBUG
-        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_dp, r_dp, c_dp, wf[v][r].s);
+    if (op_new == CigarOperation::MATCH)
+        fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_old, r_old, c_old, diag.s, v_new, r_new, c_new, diag.s);
+    else if (op_new == CigarOperation::MISMATCH && r_old == -1 && c_old == -1)
+        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_old, r_new, c_new, diag.s);
+    else
+        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", opChar, v_old, r_old, c_old, diag.s - 1, v_new, r_new, c_new, diag.s);
 #endif
-
-#ifdef TB_PRINT
-        print_tb(wf);
-#endif
-        return;
-    }
-
-    //// MISMATCH
-    if (ed == 'X')
-    {
-        r = get_row(diag_row_map, v, d_to);
-        //// not visited yet
-        if (wf[v][r].off <= c_dp)
-        {
-            wf[v][r].s = s + 1;
-
-            if (!wf[v][r].op.empty() && wf[v][r].op.back() == ed) //// if already coming from same edit
-            {
-                wf[v][r].bl.back()++; //// just increase counter
-            }
-            else //// else, add new edit
-            {
-                wf[v][r].op.push_back(ed);
-                wf[v][r].bl.push_back(1);
-            }
-
-            wf[v][r].off = c_dp;
-
-#ifdef TB_DEBUG
-            fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, s, v_dp, r_dp, c_dp, s + 1);
-#endif
-
-#ifdef TB_PRINT
-            print_tb(wf);
-#endif
-
-            return;
-        }
-    }
-
-    //// NEW DIAGONAL
-    if (ed != 'X' && diag_row_map[v].count(d_to) == 0)
-    {
-        r_from = get_row(diag_row_map, v, d);
-        tb_diag_t tmp_diag = wf[v][r_from];
-
-        wf[v].push_back(tmp_diag);                                   //// add the diagonal to wf[v]
-        diag_row_map[v].insert({d_to, ((int32_t)wf[v].size() - 1)}); //// add mapping to diag_row_map[v]
-
-        r = get_row(diag_row_map, v, d_to);
-
-        //// not visited yet
-        if (wf[v][r].off <= c_dp)
-        {
-            wf[v][r].s = s + 1;
-
-            if (!wf[v][r].op.empty() && wf[v][r].op.back() == ed) //// if already coming from same edit
-            {
-                wf[v][r].bl.back()++; //// just increase counter
-            }
-            else //// else, add new edit
-            {
-                wf[v][r].op.push_back(ed);
-                wf[v][r].bl.push_back(1);
-            }
-
-            wf[v][r].off = c_dp;
-
-#ifdef TB_DEBUG
-            fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", ed, v_dp, d + k, k, s, v_dp, r_dp, c_dp, s + 1);
-#endif
-
-#ifdef TB_PRINT
-            print_tb(wf);
-#endif
-        }
-    }
-} */
+}
 
 //// print cigar string
 void tb_cigar(vector<uint32_t> packedCigar)

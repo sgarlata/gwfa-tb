@@ -411,9 +411,6 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		gwf_diag_t t;			  //// single diagonal
 		uint32_t x0;			  //// anti diagonal
 		int32_t ooo, v, d, k, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
-		int32_t r_dp, c_dp;		  //// row and column in the traditional DP matrix
-		int32_t v_from, v_to;	  //// outgoing and incoming vertices
-		int32_t d_to;			  //// diagonal on the incoming vertex
 
 		t = *kdq_shift(gwf_diag_t, A);		//// QUEUE POP: store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
@@ -424,12 +421,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		i = k + d;							 // query position //// DP row (paper's "i = Hvk + k")
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 
-		uint64_t vd_from, vd_to;
-		vd_from = t.vd;
+		uint64_t vd_from = t.vd, vd_to;
 		tb_diag_t diag;
-		uint32_t packedCigarOperation_old;
-		CigarOperation op;
-		uint32_t len;
 
 		//// EXTENSION
 		if (k > t.k) //// TODO: understand if like this is fine or the previous checks are needed
@@ -445,20 +438,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				if (push1 == 0 && B.a[B.n - 2].k <= (k + 1))
 				{
 					vd_to = gwf_gen_vd(v, d - 1);
-					tb_diag_t diag = diag_map[vd_to];
-					diag.s++;
-					if (!diag.packedCigar.empty()) //// TODO understand if this check is necessary (perhaps due to sequential XDIs)
-					{
-						packedCigarOperation_old = diag.packedCigar.back();
-						diag.packedCigar.pop_back();
-						unpackCigarOperation(diag.packedCigar.back(), op, len);
-						if (op == CigarOperation::DELETION)
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, ++len));
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
-					}
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
+					diag_map[vd_to].s--;
+					diag_map[vd_to].packedCigar.pop_back();
+					tb_expand(diag_map[vd_to], CigarOperation::DELETION, v, v, i, k + 1);
 				}
 			}
 			if (B.n >= 1)
@@ -466,20 +448,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				push2 = gwf_diag_update(&B.a[B.n - 1], v, d, k + 1, x0 + 2, ooo, t.t);
 				if (push2 == 0 && B.a[B.n - 1].k <= (k + 1))
 				{
-					tb_diag_t diag = diag_map[vd_from];
-					diag.s++;
-					if (!diag.packedCigar.empty())
-					{
-						packedCigarOperation_old = diag.packedCigar.back();
-						diag.packedCigar.pop_back();
-						unpackCigarOperation(diag.packedCigar.back(), op, len);
-						if (op == CigarOperation::MISMATCH)
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, ++len));
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, 1));
-					}
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, 1));
+					vd_to = vd_from;
+					diag_map[vd_to].s--;
+					diag_map[vd_to].packedCigar.pop_back();
+					tb_expand(diag_map[vd_to], CigarOperation::MISMATCH, v, v, i + 1, k + 1);
 				}
 			}
 			if (push1) //// Deletion
@@ -488,53 +460,18 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				if (i >= 0 && k >= 0)
 				{
 					vd_to = gwf_gen_vd(v, d - 1);
-					diag.s = diag_map[vd_from].s + 1;
-					diag.packedCigar = diag_map[vd_from].packedCigar;
-					if (!diag.packedCigar.empty())
-					{
-						packedCigarOperation_old = diag.packedCigar.back();
-						diag.packedCigar.pop_back();
-						unpackCigarOperation(diag.packedCigar.back(), op, len);
-						if (op == CigarOperation::DELETION)
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, ++len));
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
-					}
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
-
+					diag = diag_map[vd_from];
+					tb_expand(diag, CigarOperation::DELETION, v, v, i, k + 1);
 					diag_map[vd_to] = diag;
-
-#ifdef TB_DEBUG
-					fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag.s - 1, v, i, k + 1, diag.s);
-#endif
 				}
 			}
 			if (push2 || push1) //// Mismatch
 			{
 				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t);
 				if (d == 0 || (i >= 0 && k >= 0))
-				{ //// TODO: THE PROBLEM IS THAT DIAG IS A COPY, WHILE THE ORIGINAL ENTRY IN THE MAP IS UNTOUCHED
-					diag.s = diag_map[vd_from].s + 1;
-					diag.packedCigar = diag_map[vd_from].packedCigar;
-					if (!diag.packedCigar.empty())
-					{
-						packedCigarOperation_old = diag.packedCigar.back();
-						diag.packedCigar.pop_back();
-						unpackCigarOperation(diag.packedCigar.back(), op, len);
-						if (op == CigarOperation::MISMATCH)
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, ++len));
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, 1));
-					}
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, 1));
-#ifdef TB_DEBUG
-					if (d == 0 && k == -1)
-						fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v, i + 1, k + 1, diag.s);
-					else
-						fprintf(stdout, "[DEBUG] Expansion (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag.s - 1, v, i + 1, k + 1, diag.s);
-#endif
+				{
+					vd_to = vd_from;
+					tb_expand(diag_map[vd_to], CigarOperation::MISMATCH, v, v, i + 1, k + 1);
 				}
 			}
 
@@ -543,25 +480,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			if (i >= 0 && k >= 0)
 			{
 				vd_to = gwf_gen_vd(v, d + 1);
-				diag.s = diag_map[vd_from].s + 1;
-				diag.packedCigar = diag_map[vd_from].packedCigar;
-				if (!diag.packedCigar.empty())
-				{
-					packedCigarOperation_old = diag.packedCigar.back();
-					diag.packedCigar.pop_back();
-					unpackCigarOperation(diag.packedCigar.back(), op, len);
-					if (op == CigarOperation::INSERTION)
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::INSERTION, ++len));
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::INSERTION, 1));
-				}
-				else
-					diag.packedCigar.push_back(packCigarOperation(CigarOperation::INSERTION, 1));
-
+				diag = diag_map[vd_from];
+				tb_expand(diag, CigarOperation::INSERTION, v, v, i + 1, k);
 				diag_map[vd_to] = diag;
-#ifdef TB_DEBUG
-				fprintf(stdout, "[DEBUG] Expansion (I): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag.s - 1, v, i + 1, k, diag.s);
-#endif
 			}
 		}
 		else if (i + 1 < ql) //// NEW VERTEX
@@ -588,123 +509,46 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
 
 						vd_to = p->vd;
-						diag.s = diag_map[vd_from].s;
-						diag.packedCigar = diag_map[vd_from].packedCigar;
-						if (!diag.packedCigar.empty())
-						{
-							packedCigarOperation_old = diag.packedCigar.back();
-							diag.packedCigar.pop_back();
-							unpackCigarOperation(diag.packedCigar.back(), op, len);
-							if (op == CigarOperation::MATCH)
-								diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
-							else
-								diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
-						}
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
-
-						diag_map[v_to] = diag;
-
-#ifdef TB_DEBUG
-						fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag_map[vd_from].s, w, i + 1, ol, diag.s);
-#endif
-
-#ifdef TB_PRINT
-						print_tb(wf);
-#endif
+						diag = diag_map[vd_from];
+						tb_expand(diag, CigarOperation::MATCH, v, w, i + 1, ol);
+						diag_map[vd_to] = diag;
 					}
 				}
 				else if (absent) //// EXPANSION ACROSS VERTICES
 				{
-					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); //// w's diagonal above wrt v's (deletion)
-					d_to = i - ol;
-					r_dp = i;
-					c_dp = ol;
-					vd_to = gwf_gen_vd(w, d_to);
-					diag.s = diag_map[vd_from].s + 1;
-					diag.packedCigar = diag_map[vd_from].packedCigar;
-					if (!diag.packedCigar.empty())
-					{
-						packedCigarOperation_old = diag.packedCigar.back();
-						diag.packedCigar.pop_back();
-						unpackCigarOperation(diag.packedCigar.back(), op, len);
-						if (op == CigarOperation::DELETION)
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, ++len));
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
-					}
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
+					//// Deletion
+					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw);
 
-					diag_map[v_to] = diag;
-#ifdef TB_DEBUG
-					fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag_map[vd_from].s, w, r_dp, c_dp, diag.s);
-#endif
+					vd_to = gwf_gen_vd(w, i - ol);
+					diag = diag_map[vd_from];
+					tb_expand(diag, CigarOperation::DELETION, v, w, i, ol);
+					diag_map[vd_to] = diag;
 
-#ifdef TB_PRINT
-					print_tb(wf);
-#endif
+					//// Mismatch
+					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw);
 
-					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw); //// w's current diagonal wrt v's (mismatch)
-					d_to = i + 1 - ol;
-					r_dp = i + 1;
-					c_dp = ol;
-					vd_to = gwf_gen_vd(w, d_to);
-					diag.s = diag_map[vd_from].s + 1;
-					diag.packedCigar = diag_map[vd_from].packedCigar;
-					if (!diag.packedCigar.empty())
-					{
-						packedCigarOperation_old = diag.packedCigar.back();
-						diag.packedCigar.pop_back();
-						unpackCigarOperation(diag.packedCigar.back(), op, len);
-						if (op == CigarOperation::MISMATCH)
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, ++len));
-						else
-							diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, 1));
-					}
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::MISMATCH, 1));
-
-					diag_map[v_to] = diag;
-#ifdef TB_DEBUG
-					fprintf(stdout, "[DEBUG] Expansion (X): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag.s - 1, w, r_dp, c_dp, diag.s);
-#endif
-
-#ifdef TB_PRINT
-					print_tb(wf);
-#endif
+					vd_to = gwf_gen_vd(w, i + 1 - ol);
+					diag = diag_map[vd_from];
+					tb_expand(diag, CigarOperation::MISMATCH, v, w, i + 1, ol);
+					diag_map[vd_to] = diag;
 				}
 			}
 			if (nv == 0 || n_ext != nv) //// if the number of reachable nodes is zero, or not all of the reachable nodes have been used for extension
 			{							// add an insertion to the target; this *might* cause a duplicate in corner cases
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
-				r_dp = d + 1 + k;
-				c_dp = k;
 
 				vd_to = gwf_gen_vd(v, d + 1);
-				diag.s = diag_map[vd_from].s + 1;
-				diag.packedCigar = diag_map[vd_from].packedCigar;
-				if (!diag.packedCigar.empty())
-				{
-					packedCigarOperation_old = diag.packedCigar.back();
-					diag.packedCigar.pop_back();
-					unpackCigarOperation(diag.packedCigar.back(), op, len);
-					if (op == CigarOperation::INSERTION)
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::INSERTION, ++len));
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::INSERTION, 1));
-				}
-				else
-					diag.packedCigar.push_back(packCigarOperation(CigarOperation::INSERTION, 1));
-
+				diag = diag_map[vd_from];
+				tb_expand(diag, CigarOperation::INSERTION, v, v, d + 1 + k, k);
 				diag_map[vd_to] = diag;
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
 		{											 // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
-			tb_cigar(diag_map[vd_from].packedCigar);
-			fprintf(stdout, "SCORE: %d\n", diag_map[vd_from].s);
+			vd_to = vd_from;
+			tb_cigar(diag_map[vd_to].packedCigar);
+			fprintf(stdout, "SCORE: %d\n", diag_map[vd_to].s);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
@@ -712,24 +556,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		else if (k + 1 < vl)
 		{																   // i + 1 == ql; reaching the end of the query but not the end of the vertex
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
-			r_dp = d + k;
-			c_dp = k + 1;
-			vd_to = gwf_gen_vd(v, d - 1);
-			diag.s = diag_map[vd_from].s + 1;
-			diag.packedCigar = diag_map[vd_from].packedCigar;
-			if (!diag.packedCigar.empty())
-			{
-				packedCigarOperation_old = diag.packedCigar.back();
-				diag.packedCigar.pop_back();
-				unpackCigarOperation(diag.packedCigar.back(), op, len);
-				if (op == CigarOperation::DELETION)
-					diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, ++len));
-				else
-					diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
-			}
-			else
-				diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
 
+			vd_to = gwf_gen_vd(v, d - 1);
+			diag = diag_map[vd_from];
+			tb_expand(diag, CigarOperation::DELETION, v, v, d + k, k + 1);
 			diag_map[vd_to] = diag;
 		}
 		else if (v != v1)
@@ -742,34 +572,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
 				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
-				d_to = i - ol;
-				r_dp = i;
-				c_dp = ol;
-				vd_to = gwf_gen_vd(w, d_to);
-				diag.s = diag_map[vd_from].s + 1;
-				diag.packedCigar = diag_map[vd_from].packedCigar;
-				if (!diag.packedCigar.empty())
-				{
-					packedCigarOperation_old = diag.packedCigar.back();
-					diag.packedCigar.pop_back();
-					unpackCigarOperation(diag.packedCigar.back(), op, len);
-					if (op == CigarOperation::DELETION)
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, ++len));
-					else
-						diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
-				}
-				else
-					diag.packedCigar.push_back(packCigarOperation(CigarOperation::DELETION, 1));
 
-				diag_map[v_to] = diag;
-
-#ifdef TB_DEBUG
-				fprintf(stdout, "[DEBUG] Expansion (D): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, i, k, diag.s - 1, w, r_dp, c_dp, diag.s);
-#endif
-
-#ifdef TB_PRINT
-				print_tb(wf);
-#endif
+				vd_to = gwf_gen_vd(w, i - ol);
+				diag = diag_map[vd_from];
+				tb_expand(diag, CigarOperation::DELETION, v, w, i, ol);
+				diag_map[vd_to] = diag;
 			}
 		}
 		else
@@ -807,15 +614,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	int32_t s = 0, n_a = 1, end_tb; //// $s: edit distance, $n_a: number of diagonals on which WF can be updated, $end_tb: end traceback
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
-
-	/* 	//// A map to associate each vertex ID to the index it is referred to within the data structures (i.e., visiting order)
-		unordered_map<int32_t, int32_t> v_map{{v0, 0}};
-
-		//// For each node, a vector with all the wavefronts of the node's diagonals
-		vector<vector<tb_diag_t>> wf(1, vector<tb_diag_t>(1, {.s = INT32_MAX, .op = {}, .bl = {}, .off = 0}));
-
-		//// For each graph's node v, a map to associate a diagonal to the row where it is stored in $dpd[v]
-		vector<unordered_map<int32_t, int32_t>> diag_row_map{{{0, 0}}}; */
 
 	unordered_map<uint64_t, tb_diag_t> diag_map;
 
