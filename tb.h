@@ -56,31 +56,28 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
     CigarOperation op_old;
     uint32_t len;
 
-    for (c = k_old; c <= k; ++c)
+    for (c = k_old + 1; c <= k; ++c)
     {
-        if (c > k_old || diag.s > s)
+        if (!diag.packedCigar.empty()) //// if already coming from a match
         {
-            if (!diag.packedCigar.empty()) //// if already coming from a match
+            unpackCigarOperation(diag.packedCigar.back(), op_old, len);
+            if (op_old == CigarOperation::MATCH)
             {
-                unpackCigarOperation(diag.packedCigar.back(), op_old, len);
-                if (op_old == CigarOperation::MATCH)
-                {
-                    diag.packedCigar.pop_back();
-                    diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
-                }
-                else //// else, add new match
-                    diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
+                diag.packedCigar.pop_back();
+                diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
             }
             else //// else, add new match
                 diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
-#ifdef TB_DEBUG
-            int32_t r = d + c; //// row in the DP matrix
-            if (r == 0 && c == 0)
-                fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, diag.s);
-            else
-                fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, diag.s, v, r, c, diag.s);
-#endif
         }
+        else //// else, add new match
+            diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
+#ifdef TB_DEBUG
+        int32_t r = d + c; //// row in the DP matrix
+        if (r == 0 && c == 0)
+            fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, diag.s);
+        else
+            fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, diag.s, v, r, c, diag.s);
+#endif
     }
 }
 

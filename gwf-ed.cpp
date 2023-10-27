@@ -433,72 +433,44 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		{ // the most common case: the wavefront is in the middle
 			int32_t push1 = 1, push2 = 1;
 			if (B.n >= 2)
-			{
 				push1 = gwf_diag_update(&B.a[B.n - 2], v, d - 1, k + 1, x0 + 1, ooo, t.t);
-				if (push1 == 0 && B.a[B.n - 2].k <= (k + 1))
-				{
-					vd_to = gwf_gen_vd(v, d - 1);
-					// if (B.a[B.n - 2].k < (k + 1) && diag_map[vd_to].s > diag_map[vd_from].s)
-					//{
-					// diag_map[vd_to].s--;
-					// diag_map[vd_to].packedCigar.pop_back();
-					tb_expand(diag_map[vd_to], CigarOperation::DELETION, v, v, i, k + 1);
-					//}
-				}
-			}
 			if (B.n >= 1)
-			{
 				push2 = gwf_diag_update(&B.a[B.n - 1], v, d, k + 1, x0 + 2, ooo, t.t);
-				if (push2 == 0 && B.a[B.n - 1].k <= (k + 1))
-				{
-					vd_to = vd_from;
-					// diag_map[vd_to].s--;
-					// diag_map[vd_to].packedCigar.pop_back();
-					tb_expand(diag_map[vd_to], CigarOperation::MISMATCH, v, v, i + 1, k + 1);
-				}
-			}
 			if (push1) //// Deletion
-			{
 				gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, 1, t.t);
-				if (i >= 0 && k >= 0)
+			if (push2 || push1) //// Mismatch
+				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t);
+			//// Insertion
+			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t);
+
+			if (i >= 0 && k >= 0)
+			{
+				//// TB: Deletion
+				vd_to = gwf_gen_vd(v, d - 1);
+				if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
 				{
-					vd_to = gwf_gen_vd(v, d - 1);
 					diag = diag_map[vd_from];
 					tb_expand(diag, CigarOperation::DELETION, v, v, i, k + 1);
 					diag_map[vd_to] = diag;
 				}
 			}
-			if (push2 || push1) //// Mismatch
-			{
-				gwf_diag_push(buf->km, &B, v, d, k + 1, x0 + 2, 1, t.t);
-				if (d == 0 || (i >= 0 && k >= 0))
-				{
-					vd_to = vd_from;
-					tb_expand(diag_map[vd_to], CigarOperation::MISMATCH, v, v, i + 1, k + 1);
-				}
-			}
-
-			//// Insertion
-			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t);
 			if (i >= 0 && k >= 0)
-			{ //// TODO UNDERSTAND ABOUT S AND K, PROBABLY S CAN BE AVOIDED, WHILE K COULD BE USEFUL
+			{
+				//// TB: Insertion
 				vd_to = gwf_gen_vd(v, d + 1);
-				if (diag_map.count(vd_to) == 0 || (B.a[B.n - 1].k && diag_map[vd_to].s > diag_map[vd_from].s + 1)) //// If new diagonal or improving
+				if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
 				{
 					diag = diag_map[vd_from];
-					if (push2 || push1) //// If the mismatch was recorded, delete it from the copy before the insertion
-					{
-						diag.s--;
-						diag.packedCigar.pop_back();
-					}
 					tb_expand(diag, CigarOperation::INSERTION, v, v, i + 1, k);
 					diag_map[vd_to] = diag;
 				}
 			}
-
-			// DEL
-			// IN
-			// MIS
+			if (d == 0 || (i >= 0 && k >= 0))
+			{
+				//// TB: Mismatch
+				vd_to = vd_from;
+				tb_expand(diag_map[vd_to], CigarOperation::MISMATCH, v, v, i + 1, k + 1);
+			}
 		}
 		else if (i + 1 < ql) //// NEW VERTEX
 		{					 // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
@@ -524,9 +496,12 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
 
 						vd_to = p->vd;
-						diag = diag_map[vd_from];
-						tb_expand(diag, CigarOperation::MATCH, v, w, i + 1, ol);
-						diag_map[vd_to] = diag;
+						if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
+						{
+							diag = diag_map[vd_from];
+							tb_expand(diag, CigarOperation::MATCH, v, w, i + 1, ol);
+							diag_map[vd_to] = diag;
+						}
 					}
 				}
 				else if (absent) //// EXPANSION ACROSS VERTICES
@@ -535,17 +510,23 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw);
 
 					vd_to = gwf_gen_vd(w, i - ol);
-					diag = diag_map[vd_from];
-					tb_expand(diag, CigarOperation::DELETION, v, w, i, ol);
-					diag_map[vd_to] = diag;
+					if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
+					{
+						diag = diag_map[vd_from];
+						tb_expand(diag, CigarOperation::DELETION, v, w, i, ol);
+						diag_map[vd_to] = diag;
+					}
 
 					//// Mismatch
 					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw);
 
 					vd_to = gwf_gen_vd(w, i + 1 - ol);
-					diag = diag_map[vd_from];
-					tb_expand(diag, CigarOperation::MISMATCH, v, w, i + 1, ol);
-					diag_map[vd_to] = diag;
+					if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
+					{
+						diag = diag_map[vd_from];
+						tb_expand(diag, CigarOperation::MISMATCH, v, w, i + 1, ol);
+						diag_map[vd_to] = diag;
+					}
 				}
 			}
 			if (nv == 0 || n_ext != nv) //// if the number of reachable nodes is zero, or not all of the reachable nodes have been used for extension
@@ -553,9 +534,12 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 
 				vd_to = gwf_gen_vd(v, d + 1);
-				diag = diag_map[vd_from];
-				tb_expand(diag, CigarOperation::INSERTION, v, v, d + 1 + k, k);
-				diag_map[vd_to] = diag;
+				if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
+				{
+					diag = diag_map[vd_from];
+					tb_expand(diag, CigarOperation::INSERTION, v, v, d + 1 + k, k);
+					diag_map[vd_to] = diag;
+				}
 			}
 		}
 		else if (v1 < 0 || (v == v1 && k + 1 == vl)) //// END
@@ -573,9 +557,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 
 			vd_to = gwf_gen_vd(v, d - 1);
-			diag = diag_map[vd_from];
-			tb_expand(diag, CigarOperation::DELETION, v, v, d + k, k + 1);
-			diag_map[vd_to] = diag;
+			{
+				diag = diag_map[vd_from];
+				tb_expand(diag, CigarOperation::DELETION, v, v, d + k, k + 1);
+				diag_map[vd_to] = diag;
+			}
 		}
 		else if (v != v1)
 		{ // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
@@ -589,9 +575,12 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
 
 				vd_to = gwf_gen_vd(w, i - ol);
-				diag = diag_map[vd_from];
-				tb_expand(diag, CigarOperation::DELETION, v, w, i, ol);
-				diag_map[vd_to] = diag;
+				if (diag_map.count(vd_to) == 0 || diag_map[vd_from].s + 1 < diag_map[vd_to].s)
+				{
+					diag = diag_map[vd_from];
+					tb_expand(diag, CigarOperation::DELETION, v, w, i, ol);
+					diag_map[vd_to] = diag;
+				}
 			}
 		}
 		else
