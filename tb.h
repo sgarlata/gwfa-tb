@@ -45,7 +45,7 @@ void unpackCigarOperation(uint32_t packedCigarOperation, CigarOperation &operati
 //// DIAGONAL TYPE FOR TRACEBACK
 typedef struct TB_DIAG
 {
-    int32_t s; //// edit distance
+    uint16_t s; //// edit distance
     vector<uint32_t> packedCigar;
 } tb_diag_t;
 
@@ -79,10 +79,6 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
                 fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, diag.s);
             else
                 fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, diag.s, v, r, c, diag.s);
-#endif
-
-#ifdef TB_PRINT
-            print_tb(wf);
 #endif
         }
     }

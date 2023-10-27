@@ -387,19 +387,19 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// QUEUE to keep track of the diagonals on which the wavefront can be further updated
-	gwf_diag_v B = {0, 0, 0};			   //// VECTOR of diagonals (with their offset info): gwf_diag_v is a typedef of kvec_t(gwf_diag_t) {<number_of_elements>, <capacity of vector>, <actual_array>}
+	gwf_diag_v B = {0, 0, 0};			   //// VECTOR of diagonals (with their offset info) reset each time: gwf_diag_v is a typedef of kvec_t(gwf_diag_t) {<number_of_elements>, <capacity of vector>, <actual_array>}
 	gwf_diag_t *b;						   //// array of diagonals to which B will be copied at the end
 
 	*end_v = *end_off = *end_tb = -1;
 	buf->tmp.n = 0;
 	gwf_set64_clear(buf->ha);				 // hash table $h to avoid visiting a vertex twice
 	for (i = 0, x = 1; i < 32; ++i, x <<= 1) //// x left-wise-shifted by 1 bit
-		if (x >= n)							 //// $x is probably used later for the batch method used to speed up alignment -> not relevant for us
+		if (x >= n)
 			break;
 	if (i < 4)
-		i = 4;											//// $i: number of bits to initialize the queue below
-	A = kdq_init2(gwf_diag_t, buf->km, i);				// $A is a queue
-	kv_resize(gwf_diag_t, buf->km, B, (size_t)(n * 2)); //// to properly resize the vector (if not large enough)
+		i = 4; //// $i: number of bits to initialize the queue below
+	A = kdq_init2(gwf_diag_t, buf->km, i);
+	kv_resize(gwf_diag_t, buf->km, B, (size_t)(n * 2));
 
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a)); //// $a is copied to $A->a
@@ -410,22 +410,22 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	{
 		gwf_diag_t t;			  //// single diagonal
 		uint32_t x0;			  //// anti diagonal
-		int32_t ooo, v, d, k, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal (paper's k)
+		int32_t ooo, v, d, k, vl; //// $ooo: "out-of-order", $v: vertex ID, $d: diagonal
 
 		t = *kdq_shift(gwf_diag_t, A);		//// QUEUE POP: store in $t the vertex+diagonal on the queue head
 		ooo = t.xo & 1, v = t.vd >> 32;		// vertex //// bitwise AND with 1 to keep just the lower 1 bit (flag for out-of-order); right shift to keep just the higher 32 bits (vertex ID)
 		d = (int32_t)t.vd - GWF_DIAG_SHIFT; // diagonal //// vd (uint64_t) structure: higher 32 bits: vertex ID; lower 32 bits: diagonal + GWF_DIAG_SHIFT
-		k = t.k;							// wavefront position on the vertex //// for the given diagonal (paper's j)
+		k = t.k;							// wavefront position on the vertex
 		vl = g->len[v];						// $vl is the vertex length
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		i = k + d;							 // query position //// DP row (paper's "i = Hvk + k")
+		i = k + d;							 // query position
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 
 		uint64_t vd_from = t.vd, vd_to;
 		tb_diag_t diag;
 
 		//// EXTENSION
-		if (k > t.k) //// TODO: understand if like this is fine or the previous checks are needed
+		if (k > t.k)
 			tb_extend(s, diag_map[vd_from], v, d, t.k, k);
 
 		//// EXPANSION
@@ -438,9 +438,12 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				if (push1 == 0 && B.a[B.n - 2].k <= (k + 1))
 				{
 					vd_to = gwf_gen_vd(v, d - 1);
-					diag_map[vd_to].s--;
-					diag_map[vd_to].packedCigar.pop_back();
+					// if (B.a[B.n - 2].k < (k + 1) && diag_map[vd_to].s > diag_map[vd_from].s)
+					//{
+					// diag_map[vd_to].s--;
+					// diag_map[vd_to].packedCigar.pop_back();
 					tb_expand(diag_map[vd_to], CigarOperation::DELETION, v, v, i, k + 1);
+					//}
 				}
 			}
 			if (B.n >= 1)
@@ -449,8 +452,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				if (push2 == 0 && B.a[B.n - 1].k <= (k + 1))
 				{
 					vd_to = vd_from;
-					diag_map[vd_to].s--;
-					diag_map[vd_to].packedCigar.pop_back();
+					// diag_map[vd_to].s--;
+					// diag_map[vd_to].packedCigar.pop_back();
 					tb_expand(diag_map[vd_to], CigarOperation::MISMATCH, v, v, i + 1, k + 1);
 				}
 			}
@@ -478,12 +481,24 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			//// Insertion
 			gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, ooo, t.t);
 			if (i >= 0 && k >= 0)
-			{
+			{ //// TODO UNDERSTAND ABOUT S AND K, PROBABLY S CAN BE AVOIDED, WHILE K COULD BE USEFUL
 				vd_to = gwf_gen_vd(v, d + 1);
-				diag = diag_map[vd_from];
-				tb_expand(diag, CigarOperation::INSERTION, v, v, i + 1, k);
-				diag_map[vd_to] = diag;
+				if (diag_map.count(vd_to) == 0 || (B.a[B.n - 1].k && diag_map[vd_to].s > diag_map[vd_from].s + 1)) //// If new diagonal or improving
+				{
+					diag = diag_map[vd_from];
+					if (push2 || push1) //// If the mismatch was recorded, delete it from the copy before the insertion
+					{
+						diag.s--;
+						diag.packedCigar.pop_back();
+					}
+					tb_expand(diag, CigarOperation::INSERTION, v, v, i + 1, k);
+					diag_map[vd_to] = diag;
+				}
 			}
+
+			// DEL
+			// IN
+			// MIS
 		}
 		else if (i + 1 < ql) //// NEW VERTEX
 		{					 // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
@@ -613,7 +628,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 {
 	int32_t s = 0, n_a = 1, end_tb; //// $s: edit distance, $n_a: number of diagonals on which WF can be updated, $end_tb: end traceback
 	gwf_diag_t *a;					//// array of diagonals
-	gwf_edbuf_t buf;				//// ??? perhaps a struct (buffer) to store temporary alignment information per single read
+	gwf_edbuf_t buf;
 
 	unordered_map<uint64_t, tb_diag_t> diag_map;
 
