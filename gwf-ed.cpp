@@ -548,7 +548,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			vd_to = vd_from;
 			tb_cigar(diag_map[vd_to].packedCigar);
 			if (s != diag_map[vd_to].s)
-				fprintf(stderr, "[ERROR] Traceback score not correct.\n");
+				fprintf(stderr, "[ERROR] Traceback score not correct (ED: %d vs TB: %d).\n", s, diag_map[vd_to].s);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
