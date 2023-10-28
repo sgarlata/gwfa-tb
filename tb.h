@@ -82,14 +82,13 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
 }
 
 //// Expansion for traceback (within same vertex)
-void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_new)
+void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
 {
     CigarOperation op_old;
     uint32_t len;
     char opChar;
-    int32_t r_old, c_old;
+    int32_t r_old;
 
-    diag.s++;
     if (!diag.packedCigar.empty())
     {
         unpackCigarOperation(diag.packedCigar.back(), op_old, len);
@@ -109,22 +108,21 @@ void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_
     case CigarOperation::MATCH:
         opChar = 'M';
         r_old = r_new - 1;
-        c_old = c_new - 1;
         break;
     case CigarOperation::MISMATCH:
+        diag.s++;
         opChar = 'X';
         r_old = r_new - 1;
-        c_old = c_new - 1;
         break;
     case CigarOperation::DELETION:
+        diag.s++;
         opChar = 'D';
         r_old = r_new;
-        c_old = c_new - 1;
         break;
     case CigarOperation::INSERTION:
+        diag.s++;
         opChar = 'I';
         r_old = r_new - 1;
-        c_old = c_new;
         break;
     }
 
