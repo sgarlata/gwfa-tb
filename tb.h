@@ -45,7 +45,7 @@ void unpackCigarOperation(uint32_t packedCigarOperation, CigarOperation &operati
 //// DIAGONAL TYPE FOR TRACEBACK
 typedef struct TB_DIAG
 {
-    uint16_t s; //// edit distance
+    int32_t k;
     vector<uint32_t> packedCigar;
 } tb_diag_t;
 
@@ -56,7 +56,7 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
     CigarOperation op_old;
     uint32_t len;
 
-    for (c = k_old + 1; c <= k; ++c)
+    for (c = k_old + 1; c <= k; c++)
     {
         if (!diag.packedCigar.empty()) //// if already coming from a match
         {
@@ -71,18 +71,20 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
         }
         else //// else, add new match
             diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
+
+        diag.k++;
 #ifdef TB_DEBUG
         int32_t r = d + c; //// row in the DP matrix
         if (r == 0 && c == 0)
-            fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, diag.s);
+            fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, s);
         else
-            fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, diag.s, v, r, c, diag.s);
+            fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, s, v, r, c, s);
 #endif
     }
 }
 
 //// Expansion for traceback (within same vertex)
-void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
+void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
 {
     CigarOperation op_old;
     uint32_t len;
@@ -110,17 +112,17 @@ void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_
         r_old = r_new - 1;
         break;
     case CigarOperation::MISMATCH:
-        diag.s++;
+        diag.k++;
         opChar = 'X';
         r_old = r_new - 1;
         break;
     case CigarOperation::DELETION:
-        diag.s++;
+        diag.k++;
         opChar = 'D';
         r_old = r_new;
         break;
     case CigarOperation::INSERTION:
-        diag.s++;
+        diag.k++;
         opChar = 'I';
         r_old = r_new - 1;
         break;
@@ -128,11 +130,11 @@ void tb_expand(tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_
 
 #ifdef TB_DEBUG
     if (op_new == CigarOperation::MATCH)
-        fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_old, r_old, c_old, diag.s, v_new, r_new, c_new, diag.s);
+        fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_old, r_old, c_old, s, v_new, r_new, c_new, s);
     else if (op_new == CigarOperation::MISMATCH && r_old == -1 && c_old == -1)
-        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_old, r_new, c_new, diag.s);
+        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_old, r_new, c_new, s + 1);
     else
-        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", opChar, v_old, r_old, c_old, diag.s - 1, v_new, r_new, c_new, diag.s);
+        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", opChar, v_old, r_old, c_old, s, v_new, r_new, c_new, s + 1);
 #endif
 }
 
@@ -169,6 +171,7 @@ void tb_cigar(vector<uint32_t> packedCigar)
         }
         fprintf(fCigOut, "%d%c", len, opChar);
     }
+    fprintf(fCigOut, "\n");
 
     fclose(fCigOut);
 }
