@@ -142,8 +142,13 @@ void tb_cigar(vector<uint32_t> packedCigar)
     CigarOperation op;
     uint32_t len;
     char opChar;
+    FILE *fCigOut = fopen("cigar/cigar.txt", "w");
+    if (fCigOut == NULL)
+    {
+        fprintf(stderr, "Error opening output CIGAR file.\n");
+        abort();
+    }
 
-    fprintf(stdout, "CIGAR:\t");
     for (const uint32_t packedCigarOperation : packedCigar)
     {
         unpackCigarOperation(packedCigarOperation, op, len);
@@ -162,9 +167,10 @@ void tb_cigar(vector<uint32_t> packedCigar)
             opChar = 'I';
             break;
         }
-        fprintf(stdout, "%d%c", len, opChar);
+        fprintf(fCigOut, "%d%c", len, opChar);
     }
-    fprintf(stdout, "\n");
+
+    fclose(fCigOut);
 }
 
 #endif

@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	uint32_t v0 = 0 << 1 | 0; // first segment, forward strand //// left-shift and bitwise OR (shift has higher precedence), resulting to all zeros
 	uint32_t max_lag = 0;	  //// max lag behind the furthest wavefront --> related to pruning
 	void *km = 0;			  //// chunk of memory managed with kalloc, see "kalloc.c"
-	char *sname = 0;		  //// segment name
+	char *sname = 0;		  //// starting segment name
 	////int n_threads = 0;		  //// OMP: number of threads to use
 	////int n_reads = 0;		  //// OMP
 	////vector<char> reads;		  //// OMP: vector of queries to align (the different batches to run in parallel)
