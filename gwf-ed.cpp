@@ -496,12 +496,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i + 1 - ol), p->k = ol, p->xo = (x0 + 2) << 1 | 1, p->t = tw;
 
-						vd_to = p->vd;
-						if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+						if (i >= 0 && k >= 0)
 						{
-							diag = diag_map[vd_from];
-							tb_expand(s, diag, CigarOperation::MATCH, v, w, i + 1, k, ol);
-							diag_map[vd_to] = diag;
+							vd_to = p->vd;
+							if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+							{
+								diag = diag_map[vd_from];
+								tb_expand(s, diag, CigarOperation::MATCH, v, w, i + 1, k, ol);
+								diag_map[vd_to] = diag;
+							}
 						}
 					}
 				}
@@ -510,23 +513,29 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					//// Deletion
 					gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw);
 
-					vd_to = gwf_gen_vd(w, i - ol);
-					if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+					if (i >= 0 && k >= 0)
 					{
-						diag = diag_map[vd_from];
-						tb_expand(s, diag, CigarOperation::DELETION, v, w, i, k, ol);
-						diag_map[vd_to] = diag;
+						vd_to = gwf_gen_vd(w, i - ol);
+						if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+						{
+							diag = diag_map[vd_from];
+							tb_expand(s, diag, CigarOperation::DELETION, v, w, i, k, ol);
+							diag_map[vd_to] = diag;
+						}
 					}
 
 					//// Mismatch
 					gwf_diag_push(buf->km, &B, w, i + 1 - ol, ol, x0 + 2, 1, tw);
 
-					vd_to = gwf_gen_vd(w, i + 1 - ol);
-					if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+					if (i >= 0 && k >= 0)
 					{
-						diag = diag_map[vd_from];
-						tb_expand(s, diag, CigarOperation::MISMATCH, v, w, i + 1, k, ol);
-						diag_map[vd_to] = diag;
+						vd_to = gwf_gen_vd(w, i + 1 - ol);
+						if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+						{
+							diag = diag_map[vd_from];
+							tb_expand(s, diag, CigarOperation::MISMATCH, v, w, i + 1, k, ol);
+							diag_map[vd_to] = diag;
+						}
 					}
 				}
 			}
@@ -534,12 +543,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			{							// add an insertion to the target; this *might* cause a duplicate in corner cases
 				gwf_diag_push(buf->km, &B, v, d + 1, k, x0 + 1, 1, t.t);
 
-				vd_to = gwf_gen_vd(v, d + 1);
-				if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < k)
+				if (i >= 0 && k >= 0)
 				{
-					diag = diag_map[vd_from];
-					tb_expand(s, diag, CigarOperation::INSERTION, v, v, d + 1 + k, k, k);
-					diag_map[vd_to] = diag;
+					vd_to = gwf_gen_vd(v, d + 1);
+					if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < k)
+					{
+						diag = diag_map[vd_from];
+						tb_expand(s, diag, CigarOperation::INSERTION, v, v, d + 1 + k, k, k);
+						diag_map[vd_to] = diag;
+					}
 				}
 			}
 		}
@@ -556,12 +568,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		{																   // i + 1 == ql; reaching the end of the query but not the end of the vertex
 			gwf_diag_push(buf->km, &B, v, d - 1, k + 1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
 
-			vd_to = gwf_gen_vd(v, d - 1);
-			if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < k + 1)
+			if (i >= 0 && k >= 0)
 			{
-				diag = diag_map[vd_from];
-				tb_expand(s, diag, CigarOperation::DELETION, v, v, d + k, k, k + 1);
-				diag_map[vd_to] = diag;
+				vd_to = gwf_gen_vd(v, d - 1);
+				if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < k + 1)
+				{
+					diag = diag_map[vd_from];
+					tb_expand(s, diag, CigarOperation::DELETION, v, v, d + k, k, k + 1);
+					diag_map[vd_to] = diag;
+				}
 			}
 		}
 		else if (v != v1)
@@ -575,12 +590,15 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				int32_t ol = g->arc[ov + j].o;
 				gwf_diag_push(buf->km, &B, w, i - ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
 
-				vd_to = gwf_gen_vd(w, i - ol);
-				if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+				if (i >= 0 && k >= 0)
 				{
-					diag = diag_map[vd_from];
-					tb_expand(s, diag, CigarOperation::DELETION, v, w, i, k, ol);
-					diag_map[vd_to] = diag;
+					vd_to = gwf_gen_vd(w, i - ol);
+					if (diag_map.count(vd_to) == 0 || diag_map[vd_to].k < ol)
+					{
+						diag = diag_map[vd_from];
+						tb_expand(s, diag, CigarOperation::DELETION, v, w, i, k, ol);
+						diag_map[vd_to] = diag;
+					}
 				}
 			}
 		}

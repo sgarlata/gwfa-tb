@@ -56,6 +56,7 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
     CigarOperation op_old;
     uint32_t len;
 
+    diag.k = k;
     for (c = k_old + 1; c <= k; c++)
     {
         if (!diag.packedCigar.empty()) //// if already coming from a match
@@ -72,7 +73,6 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
         else //// else, add new match
             diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
 
-        diag.k++;
 #ifdef TB_DEBUG
         int32_t r = d + c; //// row in the DP matrix
         if (r == 0 && c == 0)
@@ -91,6 +91,7 @@ void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old,
     char opChar;
     int32_t r_old;
 
+    diag.k = c_new;
     if (!diag.packedCigar.empty())
     {
         unpackCigarOperation(diag.packedCigar.back(), op_old, len);
@@ -112,17 +113,14 @@ void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old,
         r_old = r_new - 1;
         break;
     case CigarOperation::MISMATCH:
-        diag.k++;
         opChar = 'X';
         r_old = r_new - 1;
         break;
     case CigarOperation::DELETION:
-        diag.k++;
         opChar = 'D';
         r_old = r_new;
         break;
     case CigarOperation::INSERTION:
-        diag.k++;
         opChar = 'I';
         r_old = r_new - 1;
         break;
