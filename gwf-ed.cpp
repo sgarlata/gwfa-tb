@@ -378,7 +378,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 }
 
 // wfa_extend and wfa_next combined
-static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<uint64_t, vector<uint32_t>> &diag_map)
+static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<uint64_t, vector<uint16_t>> &diag_map)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// QUEUE to keep track of the diagonals on which the wavefront can be further updated
@@ -417,7 +417,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 
 		uint64_t vd_from = t.vd, vd_to;
-		vector<uint32_t> diag;
+		vector<uint16_t> diag;
 
 		//// EXTENSION
 		if (k > t.k)
@@ -634,7 +634,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;
 
-	unordered_map<uint64_t, vector<uint32_t>> diag_map;
+	unordered_map<uint64_t, vector<uint16_t>> diag_map;
 
 	memset(&buf, 0, sizeof(buf)); //// buffer initialization
 	buf.km = km;				  //// memory chunk, see "kalloc.c"
