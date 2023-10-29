@@ -462,7 +462,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				}
 			}
 
-			if (d == 0 || (i >= 0 && k >= 0))
+			if (s == 0 || (i >= 0 && k >= 0))
 			{
 				//// TB: Mismatch
 				vd_to = vd_from;
