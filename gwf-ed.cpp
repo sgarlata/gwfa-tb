@@ -238,10 +238,7 @@ static int32_t gwf_diag_dedup(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *
 				for (j = st + 1; j < i; ++j) // choose the far end (i.e. the wavefront)
 					if (a[max_j].k < a[j].k)
 						max_j = j;
-			////fprintf(stdout, "[DEDUP-BEFORE] a[%d].v = %d, a[%d].d = %d, a[%d].k = %d, a[%d].xo = %u, a[%d].t = %d\n", n, a[n].vd >> 32, n, (int32_t)a[n].vd - GWF_DIAG_SHIFT, n, a[n].k, n, a[n].xo, n, a[n].t);
 			a[n++] = a[max_j];
-			////tb_rmv_diag(wf, diag_row_map, v_map[a[n - 1].vd >> 32], (int32_t)a[n - 1].vd - GWF_DIAG_SHIFT);
-			////fprintf(stdout, "[DEDUP-AFTER] a[%d].v = %d, a[%d].d = %d, a[%d].k = %d, a[%d].xo = %u, a[%d].t = %d\n", n - 1, a[n - 1].vd >> 32, n - 1, (int32_t)a[n - 1].vd - GWF_DIAG_SHIFT, n - 1, a[n - 1].k, n - 1, a[n - 1].xo, n - 1, a[n - 1].t);
 			st = i;
 		}
 	}
@@ -261,13 +258,11 @@ static int32_t gwf_mixed_dedup(int32_t n_a, gwf_diag_t *a, int32_t n_b, gwf_intv
 		else
 		{
 			a[k++] = a[i++];
-			////tb_rmv_diag(wf, diag_row_map, v_map[a[k - 1].vd >> 32], (int32_t)a[k - 1].vd - GWF_DIAG_SHIFT);
 		}
 	}
 	while (i < n_a)
 	{
 		a[k++] = a[i++];
-		////tb_rmv_diag(wf, diag_row_map, v_map[a[k - 1].vd >> 32], (int32_t)a[k - 1].vd - GWF_DIAG_SHIFT);
 	}
 
 	return k;
@@ -383,7 +378,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 }
 
 // wfa_extend and wfa_next combined
-static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<uint64_t, tb_diag_t> &diag_map)
+static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback, int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a, int32_t s, unordered_map<uint64_t, vector<uint32_t>> &diag_map)
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1; //// do_dedup is a binary flag used to know when to remove diagonals not on the wavefront
 	kdq_t(gwf_diag_t) * A;				   //// QUEUE to keep track of the diagonals on which the wavefront can be further updated
@@ -422,7 +417,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
 
 		uint64_t vd_from = t.vd, vd_to;
-		tb_diag_t diag;
+		vector<uint32_t> diag;
 
 		//// EXTENSION
 		if (k > t.k)
@@ -560,7 +555,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		{											 // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
 			vd_to = vd_from;
-			tb_cigar(diag_map[vd_to].packedCigar);
+			tb_cigar(diag_map[vd_to]);
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
@@ -639,7 +634,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	gwf_diag_t *a;					//// array of diagonals
 	gwf_edbuf_t buf;
 
-	unordered_map<uint64_t, tb_diag_t> diag_map;
+	unordered_map<uint64_t, vector<uint32_t>> diag_map;
 
 	memset(&buf, 0, sizeof(buf)); //// buffer initialization
 	buf.km = km;				  //// memory chunk, see "kalloc.c"
@@ -648,7 +643,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
 	KCALLOC(km, a, 1);
 	a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
-	diag_map[a[0].vd] = {-1, {}};
+	diag_map[a[0].vd] = {};
 	if (traceback)
 		a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht); //// traceback info for the initial state
 	while (n_a > 0)

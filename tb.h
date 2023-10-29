@@ -43,36 +43,33 @@ void unpackCigarOperation(uint32_t packedCigarOperation, CigarOperation &operati
 }
 
 //// DIAGONAL TYPE FOR TRACEBACK
-typedef struct TB_DIAG
+/* typedef struct TB_DIAG
 {
-    int32_t k;
     vector<uint32_t> packedCigar;
-} tb_diag_t;
+} tb_diag_t; */
 
 //// Extension for traceback (within same vertex)
-void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
+void tb_extend(int32_t s, vector<uint32_t> &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
     int32_t c;
     CigarOperation op_old;
     uint32_t len;
 
-    diag.k = k;
-
     for (c = k_old + 1; c <= k; c++)
     {
-        if (!diag.packedCigar.empty()) //// if already coming from a match
+        if (!diag.empty()) //// if already coming from a match
         {
-            unpackCigarOperation(diag.packedCigar.back(), op_old, len);
+            unpackCigarOperation(diag.back(), op_old, len);
             if (op_old == CigarOperation::MATCH)
             {
-                diag.packedCigar.pop_back();
-                diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
+                diag.pop_back();
+                diag.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
             }
             else //// else, add new match
-                diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
+                diag.push_back(packCigarOperation(CigarOperation::MATCH, 1));
         }
         else //// else, add new match
-            diag.packedCigar.push_back(packCigarOperation(CigarOperation::MATCH, 1));
+            diag.push_back(packCigarOperation(CigarOperation::MATCH, 1));
 
 #ifdef TB_DEBUG
         int32_t r = d + c; //// row in the DP matrix
@@ -87,26 +84,24 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
 }
 
 //// Expansion for traceback (within same vertex)
-void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
+void tb_expand(int32_t s, vector<uint32_t> &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
 {
     CigarOperation op_old;
     uint32_t len;
 
-    diag.k = c_new;
-
-    if (!diag.packedCigar.empty())
+    if (!diag.empty())
     {
-        unpackCigarOperation(diag.packedCigar.back(), op_old, len);
+        unpackCigarOperation(diag.back(), op_old, len);
         if (op_old == op_new)
         {
-            diag.packedCigar.pop_back();
-            diag.packedCigar.push_back(packCigarOperation(op_new, ++len));
+            diag.pop_back();
+            diag.push_back(packCigarOperation(op_new, ++len));
         }
         else
-            diag.packedCigar.push_back(packCigarOperation(op_new, 1));
+            diag.push_back(packCigarOperation(op_new, 1));
     }
     else
-        diag.packedCigar.push_back(packCigarOperation(op_new, 1));
+        diag.push_back(packCigarOperation(op_new, 1));
 
 #ifdef TB_DEBUG
     char opChar;
