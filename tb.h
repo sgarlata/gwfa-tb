@@ -57,6 +57,7 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
     uint32_t len;
 
     diag.k = k;
+
     for (c = k_old + 1; c <= k; c++)
     {
         if (!diag.packedCigar.empty()) //// if already coming from a match
@@ -75,6 +76,8 @@ void tb_extend(int32_t s, tb_diag_t &diag, int32_t v, int32_t d, int32_t k_old, 
 
 #ifdef TB_DEBUG
         int32_t r = d + c; //// row in the DP matrix
+        char opChar;
+
         if (r == 0 && c == 0)
             fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, s);
         else
@@ -88,10 +91,9 @@ void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old,
 {
     CigarOperation op_old;
     uint32_t len;
-    char opChar;
-    int32_t r_old;
 
     diag.k = c_new;
+
     if (!diag.packedCigar.empty())
     {
         unpackCigarOperation(diag.packedCigar.back(), op_old, len);
@@ -105,6 +107,10 @@ void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old,
     }
     else
         diag.packedCigar.push_back(packCigarOperation(op_new, 1));
+
+#ifdef TB_DEBUG
+    char opChar;
+    int32_t r_old;
 
     switch (op_new)
     {
@@ -126,7 +132,6 @@ void tb_expand(int32_t s, tb_diag_t &diag, CigarOperation op_new, int32_t v_old,
         break;
     }
 
-#ifdef TB_DEBUG
     if (op_new == CigarOperation::MATCH)
         fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_old, r_old, c_old, s, v_new, r_new, c_new, s);
     else if (op_new == CigarOperation::MISMATCH && r_old == -1 && c_old == -1)
