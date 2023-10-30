@@ -345,7 +345,6 @@ static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
 		{
 			a[j++] = a[i];
 		}
-	////tb_rmv_diag(wf, diag_row_map, v_map[a[j - 1].vd >> 32], (int32_t)a[j - 1].vd - GWF_DIAG_SHIFT);
 	return j;
 }
 
