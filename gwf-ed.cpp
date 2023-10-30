@@ -224,7 +224,7 @@ static void gwf_diag_sort(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *ooo)
 }
 
 // remove diagonals not on the wavefront
-static int32_t gwf_diag_dedup(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *ooo)
+static int32_t gwf_diag_dedup(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *ooo, unordered_map<uint64_t, vector<uint16_t>> &diag_map)
 {
 	int32_t i, n, st;
 	if (!gwf_diag_is_sorted(n_a, a))
@@ -238,6 +238,7 @@ static int32_t gwf_diag_dedup(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *
 				for (j = st + 1; j < i; ++j) // choose the far end (i.e. the wavefront)
 					if (a[max_j].k < a[j].k)
 						max_j = j;
+			// diag_map.erase(a[n].vd);
 			a[n++] = a[max_j];
 			st = i;
 		}
@@ -246,7 +247,7 @@ static int32_t gwf_diag_dedup(int32_t n_a, gwf_diag_t *a, void *km, gwf_diag_v *
 }
 
 // use forbidden bands to remove diagonals not on the wavefront
-static int32_t gwf_mixed_dedup(int32_t n_a, gwf_diag_t *a, int32_t n_b, gwf_intv_t *b)
+static int32_t gwf_mixed_dedup(int32_t n_a, gwf_diag_t *a, int32_t n_b, gwf_intv_t *b, unordered_map<uint64_t, vector<uint16_t>> &diag_map)
 {
 	int32_t i = 0, j = 0, k = 0;
 	while (i < n_a && j < n_b)
@@ -257,11 +258,13 @@ static int32_t gwf_mixed_dedup(int32_t n_a, gwf_diag_t *a, int32_t n_b, gwf_intv
 			++j;
 		else
 		{
+			// diag_map.erase(a[k].vd);
 			a[k++] = a[i++];
 		}
 	}
 	while (i < n_a)
 	{
+		// diag_map.erase(a[k].vd);
 		a[k++] = a[i++];
 	}
 
@@ -315,7 +318,7 @@ typedef struct Edit_Distance_Buffer
 } gwf_edbuf_t;
 
 // remove diagonals not on the wavefront
-static int32_t gwf_dedup(gwf_edbuf_t *buf, int32_t n_a, gwf_diag_t *a)
+static int32_t gwf_dedup(gwf_edbuf_t *buf, int32_t n_a, gwf_diag_t *a, unordered_map<uint64_t, vector<uint16_t>> &diag_map)
 {
 	if (buf->intv.n + buf->tmp.n > 0)
 	{
@@ -325,14 +328,14 @@ static int32_t gwf_dedup(gwf_edbuf_t *buf, int32_t n_a, gwf_diag_t *a)
 		kv_resize(gwf_intv_t, buf->km, buf->intv, buf->intv.n + buf->tmp.n);
 		buf->intv.n = gwf_intv_merge2(buf->intv.a, buf->swap.n, buf->swap.a, buf->tmp.n, buf->tmp.a);
 	}
-	n_a = gwf_diag_dedup(n_a, a, buf->km, &buf->ooo);
+	n_a = gwf_diag_dedup(n_a, a, buf->km, &buf->ooo, diag_map);
 	if (buf->intv.n > 0)
-		n_a = gwf_mixed_dedup(n_a, a, buf->intv.n, buf->intv.a);
+		n_a = gwf_mixed_dedup(n_a, a, buf->intv.n, buf->intv.a, diag_map);
 	return n_a;
 }
 
 // remove diagonals that lag far behind the furthest wavefront
-static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
+static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag, unordered_map<uint64_t, vector<uint16_t>> &diag_map)
 {
 	int32_t i, j;
 	uint32_t max_x = 0;
@@ -342,7 +345,10 @@ static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
 		return n_a; // no filtering
 	for (i = j = 0; i < n_a; ++i)
 		if ((a[i].xo >> 1) + max_lag >= max_x)
+		{
+			diag_map.erase(a[j].vd);
 			a[j++] = a[i];
+		}
 	////tb_rmv_diag(wf, diag_row_map, v_map[a[j - 1].vd >> 32], (int32_t)a[j - 1].vd - GWF_DIAG_SHIFT);
 	return j;
 }
@@ -606,9 +612,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	*n_a_ = n = B.n, b = B.a; //// b <- B
 
 	if (do_dedup)
-		*n_a_ = n = gwf_dedup(buf, n, b);
+		*n_a_ = n = gwf_dedup(buf, n, b, diag_map);
 	if (max_lag > 0)
-		*n_a_ = n = gwf_prune(n, b, max_lag);
+		*n_a_ = n = gwf_prune(n, b, max_lag, diag_map);
 	return b;
 }
 
