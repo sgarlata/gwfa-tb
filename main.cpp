@@ -102,10 +102,6 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	uint32_t max_lag = 0;	  //// max lag behind the furthest wavefront --> related to pruning
 	void *km = 0;			  //// chunk of memory managed with kalloc, see "kalloc.c"
 	char *sname = 0;		  //// starting segment name
-	////int n_threads = 0;		  //// OMP: number of threads to use
-	////int n_reads = 0;		  //// OMP
-	////vector<char> reads;		  //// OMP: vector of queries to align (the different batches to run in parallel)
-	//// TODO: understand whether to keep this as a vector of char or as a better type to encompass kseqs' info
 
 	while ((c = ketopt(&o, argc, argv, 1, "ptl:s:", 0)) >= 0)
 	{ //// command-line arguments management
@@ -155,8 +151,6 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	fp = gzopen(argv[o.ind + 1], "r"); //// open file for reading
 	assert(fp);						   //// check file has opened correctly
 	ks = kseq_init(fp);				   //// parse fasta's reads
-	//// TODO: data structures set up to manage and balancingly distribute reads among threads
-	//// STRATEGY: the following while will contain code to fill such data structures, while after it an OMP parallel for will be used to run the algorithm in parallel among each thread's assigned batch
 
 	clock_t before, after;
 	before = clock();

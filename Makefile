@@ -7,7 +7,7 @@ CPPFLAGS=	#-DTB_DEBUG #-DGWF_DEBUG
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o
 PROG=		bin/gwf-bin-tbwf
-LIBS=		-lz -lpthread -lm -fopenmp
+LIBS=		-lz -lpthread -lm
 
 ifneq ($(asan),)
 	CFLAGS+=-fsanitize=address
