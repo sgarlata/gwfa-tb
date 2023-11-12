@@ -1,5 +1,5 @@
-#ifndef TB_H
-#define TB_H
+#ifndef CIGAR_H
+#define CIGAR_H
 
 #include <stdio.h>
 #include <vector>
@@ -37,7 +37,7 @@ void unpackCigarOperation(uint16_t packedCigarOperation, CigarOperation &operati
 }
 
 //// Extension for traceback (within same vertex)
-void tb_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
+void cigar_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
     int32_t c;
     CigarOperation op_old;
@@ -59,7 +59,7 @@ void tb_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32_t 
         else //// else, add new match
             diag.push_back(packCigarOperation(CigarOperation::MATCH, 1));
 
-#ifdef TB_DEBUG
+#ifdef CIGAR_DEBUG
         int32_t r = d + c; //// row in the DP matrix
         char op_char;
 
@@ -72,7 +72,7 @@ void tb_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32_t 
 }
 
 //// Expansion for traceback (within same vertex)
-void tb_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
+void cigar_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
 {
     CigarOperation op_old;
     uint16_t len;
@@ -91,7 +91,7 @@ void tb_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int32_t
     else
         diag.push_back(packCigarOperation(op_new, 1));
 
-#ifdef TB_DEBUG
+#ifdef CIGAR_DEBUG
     char op_char;
     int32_t r_old;
 
@@ -125,7 +125,7 @@ void tb_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int32_t
 }
 
 //// print cigar string
-void tb_cigar(vector<uint16_t> packedCigar)
+void cigar_print(vector<uint16_t> packedCigar)
 {
     CigarOperation op;
     CigarOperation op_next;

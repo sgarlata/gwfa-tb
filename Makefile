@@ -2,11 +2,11 @@ CC=			gcc
 CXX=		g++
 CFLAGS=		-g -Wall -O3
 CXXFLAGS=	-g -Wall -O3 -std=c++11
-CPPFLAGS=	#-DTB_DEBUG #-DGWF_DEBUG
+CPPFLAGS=	#-DCIGAR_DEBUG #-DGWF_DEBUG
 
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o
-PROG=		bin/gwf-bin-tbwf
+PROG=		bin/gwf-cigar
 LIBS=		-lz -lpthread -lm
 
 ifneq ($(asan),)
@@ -39,7 +39,7 @@ depend:
 gfa-base.o: gfa-priv.h gfa.h kstring.h khash.h kalloc.h ksort.h
 gfa-io.o: kstring.h gfa-priv.h gfa.h kseq.h
 gfa-sub.o: gfa-priv.h gfa.h kalloc.h kavl.h khash.h ksort.h
-gwf-ed.o: gwfa.h kalloc.h ksort.h khashl.h kdq.h kvec.h tb.h
+gwf-ed.o: gwfa.h kalloc.h ksort.h khashl.h kdq.h kvec.h cigar.h
 gwfa-lin.o: gwfa.h kalloc.h ksort.h
 kalloc.o: kalloc.h
 main.o: gfa.h gfa-priv.h gwfa.h ketopt.h kalloc.h kseq.h
