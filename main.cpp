@@ -12,7 +12,6 @@
 #include <vector> ////
 #include <time.h>
 #include <iostream>
-using namespace std; ////
 KSEQ_INIT(gzFile, gzread)
 
 //// The frees for sub that were missing
@@ -97,11 +96,24 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	gfa_t *gfa;				  //// reference graph
 	gwf_graph_t *g;			  //// graph representation for the algorithm
 	gwf_path_t path;		  //// path in the graph
-	int c, print_graph = 0, traceback = 0;
+	int c, print_graph = 0, traceback = 1;
 	uint32_t v0 = 0 << 1 | 0; // first segment, forward strand //// left-shift and bitwise OR (shift has higher precedence), resulting to all zeros
 	uint32_t max_lag = 0;	  //// max lag behind the furthest wavefront --> related to pruning
 	void *km = 0;			  //// chunk of memory managed with kalloc, see "kalloc.c"
 	char *sname = 0;		  //// starting segment name
+
+	FILE *fGAF;
+	char filename[32];
+	struct tm *timenow;
+	time_t now = time(NULL);
+	timenow = gmtime(&now);
+	strftime(filename, sizeof(filename), "results_%Y-%m-%d_%H:%M:%S.gaf", timenow);
+	fGAF = fopen(filename, "w");
+	if (fGAF == NULL)
+	{
+		fprintf(stderr, "Error opening output GAF file.\n");
+		abort();
+	}
 
 	while ((c = ketopt(&o, argc, argv, 1, "ptl:s:", 0)) >= 0)
 	{ //// command-line arguments management
@@ -111,18 +123,18 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 			max_lag = atoi(o.arg);
 		else if (c == 's')
 			sname = o.arg;
-		else if (c == 't')
-			traceback = 1;
+		/* else if (c == 't')
+			traceback = 1; */
 		/* else if (c == 'n') //// OMP: number of threads to use
 			n_threads = atoi(o.arg); */
 	}
 	if ((!print_graph && argc - o.ind < 2) || (print_graph && argc == o.ind)) //// missing arguments
 	{
-		fprintf(stderr, "Usage: gwf-test [options] <target.gfa|fa> <query.fa>\n");
+		fprintf(stderr, "Usage: gwf-cigar [options] <target.gfa|fa> <query.fa>\n");
 		fprintf(stderr, "Options:\n");
 		fprintf(stderr, "  -l INT    max lag behind the furthest wavefront; 0 to disable [0]\n");
 		fprintf(stderr, "  -s STR    starting segment name [first]\n");
-		fprintf(stderr, "  -t        report the alignment path\n");
+		// fprintf(stderr, "  -t        report the alignment path\n");
 		fprintf(stderr, "  -p        output GFA in the forward strand\n");
 		return 1;
 	}
@@ -156,20 +168,22 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	before = clock();
 	while (kseq_read(ks) >= 0) //// while the file still contains reads
 	{
-		int32_t s;																   //// optimal alignment cost
-		s = gwf_ed(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path); //// algorithm core
-		if (traceback)															   //// perhaps where we should contribute, so where to go vertical
+		int32_t s;	 //// optimal alignment cost
+		int32_t abl; //// alignment block length (total number of =s, Xs, Ds, and Is in the alignment)
+		string cig = "";
+		s = gwf_ed(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path, cig, abl); //// algorithm core
+		if (traceback)																		 //// perhaps where we should contribute, so where to go vertical
 		{
 			int32_t i, last_len = -1, len = 0;
-			printf("%s\t%ld\t0\t%ld\t+\t", ks->name.s, ks->seq.l, ks->seq.l);
+			fprintf(fGAF, "%s\t%ld\t0\t%ld\t+\t", ks->name.s, ks->seq.l, ks->seq.l);
 			for (i = 0; i < path.nv; ++i)
 			{
 				uint32_t v = g->src[path.v[i]];
-				printf("%c%s", "><"[v & 1], gfa -> seg[v >> 1].name);
+				fprintf(fGAF, "%c%s", "><"[v & 1], gfa -> seg[v >> 1].name);
 				last_len = gfa->seg[v >> 1].len;
 				len += last_len;
 			}
-			printf("\t%d\t0\t%d\t%d\n", len, len - (last_len - path.end_off) + 1, path.s);
+			fprintf(fGAF, "\t%d\t0\t%d\t%d\t%d\t60\tcg:Z:%s\n", len, len - (last_len - path.end_off) + 1, path.s, abl, cig.c_str());
 		}
 		else
 			printf("%s\t%d\n", ks->name.s, s); //// if no traceback is requested, just display the matching
@@ -183,5 +197,7 @@ int main(int argc, char *argv[]) // kstring_t name, comment, seq, qual;
 	gwf_cleanup(km, g);
 	gwf_free(g);
 	km_destroy(km);
+
+	fclose(fGAF);
 	return 0;
 }

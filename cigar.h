@@ -5,10 +5,11 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
+#include <string>
 using namespace std;
 
 // Number of bits for each field
-const int OP_BITS = 2;   // 2 bits for operations (M, X, D, I)
+const int OP_BITS = 2;   // 2 bits for operations (=, X, D, I)
 const int LEN_BITS = 14; // 14 bits for the length
 
 // Maximum length for a CIGAR operation (2^14 - 1)
@@ -23,7 +24,7 @@ enum class CigarOperation : uint16_t
     INSERTION = 3 // I
 };
 
-// Function to pack a CIGAR operation and length into a single 32-bit integer
+// Function to pack a CIGAR operation and length into a single 16-bit integer
 uint16_t packCigarOperation(CigarOperation operation, uint16_t length)
 {
     return static_cast<uint16_t>(operation) << LEN_BITS | (length & MAX_OP_LEN);
@@ -36,7 +37,7 @@ void unpackCigarOperation(uint16_t packedCigarOperation, CigarOperation &operati
     length = packedCigarOperation & MAX_OP_LEN;
 }
 
-//// Extension for traceback (within same vertex)
+//// Extension for cigar (within same vertex)
 void cigar_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
     int32_t c;
@@ -71,7 +72,7 @@ void cigar_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32
     }
 }
 
-//// Expansion for traceback (within same vertex)
+//// Expansion for cigar (within same vertex)
 void cigar_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
 {
     CigarOperation op_old;
@@ -124,8 +125,8 @@ void cigar_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int3
 #endif
 }
 
-//// print cigar string
-void cigar_print(vector<uint16_t> packedCigar)
+//// unpack and store the cigar, and return the alignment block length
+int32_t cigar_store(vector<uint16_t> packedCigar, string &cig)
 {
     CigarOperation op;
     CigarOperation op_next;
@@ -133,12 +134,8 @@ void cigar_print(vector<uint16_t> packedCigar)
     uint16_t len_next;
     uint32_t len_tot = 0;
     char op_char;
-    FILE *fCigOut = fopen("cigar/cigar.txt", "w");
-    if (fCigOut == NULL)
-    {
-        fprintf(stderr, "Error opening output CIGAR file.\n");
-        abort();
-    }
+
+    int32_t abl = 0;
 
     for (vector<uint16_t>::size_type i = 0; i < packedCigar.size(); i++)
     {
@@ -166,16 +163,23 @@ void cigar_print(vector<uint16_t> packedCigar)
             unpackCigarOperation(packedCigar[i + 1], op_next, len_next);
             if (op != op_next)
             {
-                fprintf(fCigOut, "%d%c", len_tot, op_char);
+                // fprintf(fCigOut, "%d%c", len_tot, op_char);
+                cig += to_string(len_tot) += op_char;
+                abl += len_tot;
                 len_tot = 0;
             }
         }
         else
-            fprintf(fCigOut, "%d%c", len_tot, op_char);
+        {
+            // fprintf(fCigOut, "%d%c", len_tot, op_char);
+            cig += to_string(len_tot) += op_char;
+            abl += len_tot;
+        }
     }
-    fprintf(fCigOut, "\n");
+    // fprintf(fCigOut, "\n");
 
-    fclose(fCigOut);
+    // fclose(fCigOut);
+    return abl;
 }
 
 #endif
