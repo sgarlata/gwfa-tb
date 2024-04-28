@@ -9,7 +9,7 @@ GWFA is optimized for graphs consisting of long segments and like WFA, it is fas
 ## Usage
 
 ```sh
-git clone https://github.com/sgarlata/gwfa-tb.git
+git clone https://github.com/sgarlata/gwfa-tb
 cd gwfa-tb && make
 ./gwfa-tb test/C4-90.gfa.gz test/C4-NA19240.1.fa.gz
 ./gwfa-tb test/C4-NA19240.1.fa.gz test/C4-NA19240.2.fa.gz
