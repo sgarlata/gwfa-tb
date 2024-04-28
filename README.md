@@ -15,6 +15,9 @@ cd gwfa-tb && make
 ./gwfa-tb test/C4-NA19240.1.fa.gz test/C4-NA19240.2.fa.gz
 ```
 
+Output GAF files are named in the following format:
+`gwfa-tb_2023-12-19_17:22:00.gaf`.
+
 [gwfa]: https://github.com/lh3/gwfa
 [wfa]: https://github.com/smarco/WFA
 [edlib]: https://github.com/Martinsos/edlib
