@@ -1,7 +1,2 @@
 .*.swp
 *.o
-.vscode
-test
-!test/t1.*
-bin
-cigar

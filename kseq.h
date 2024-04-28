@@ -99,7 +99,7 @@
 #define KSTRING_T kstring_t
 typedef struct __kstring_t
 {
-	size_t l, m; //// $l: length; $m: memory
+	size_t l, m; // $l: length; $m: memory
 	char *s;
 } kstring_t;
 #endif

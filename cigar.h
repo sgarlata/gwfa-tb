@@ -37,7 +37,7 @@ void unpackCigarOperation(uint16_t packedCigarOperation, CigarOperation &operati
     length = packedCigarOperation & MAX_OP_LEN;
 }
 
-//// Extension for cigar (within same vertex)
+// Extension for cigar (within same vertex)
 void cigar_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32_t k_old, int32_t k)
 {
     int32_t c;
@@ -46,7 +46,7 @@ void cigar_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32
 
     for (c = k_old + 1; c <= k; c++)
     {
-        if (!diag.empty()) //// if already coming from a match
+        if (!diag.empty()) // if already coming from a match
         {
             unpackCigarOperation(diag.back(), op_old, len);
             if (op_old == CigarOperation::MATCH && len < MAX_OP_LEN)
@@ -54,25 +54,15 @@ void cigar_extend(int32_t s, vector<uint16_t> &diag, int32_t v, int32_t d, int32
                 diag.pop_back();
                 diag.push_back(packCigarOperation(CigarOperation::MATCH, ++len));
             }
-            else //// else, add new match
+            else // else, add new match
                 diag.push_back(packCigarOperation(CigarOperation::MATCH, 1));
         }
-        else //// else, add new match
+        else // else, add new match
             diag.push_back(packCigarOperation(CigarOperation::MATCH, 1));
-
-#ifdef CIGAR_DEBUG
-        int32_t r = d + c; //// row in the DP matrix
-        char op_char;
-
-        if (r == 0 && c == 0)
-            fprintf(stdout, "[DEBUG] Starting match (=): [%d][%d][%d] = %d\n", v, r, c, s);
-        else
-            fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v, r - 1, c - 1, s, v, r, c, s);
-#endif
     }
 }
 
-//// Expansion for cigar (within same vertex)
+// Expansion for cigar (within same vertex)
 void cigar_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int32_t v_old, int32_t v_new, int32_t r_new, int32_t c_old, int32_t c_new)
 {
     CigarOperation op_old;
@@ -91,41 +81,9 @@ void cigar_expand(int32_t s, vector<uint16_t> &diag, CigarOperation op_new, int3
     }
     else
         diag.push_back(packCigarOperation(op_new, 1));
-
-#ifdef CIGAR_DEBUG
-    char op_char;
-    int32_t r_old;
-
-    switch (op_new)
-    {
-    case CigarOperation::MATCH:
-        op_char = 'M';
-        r_old = r_new - 1;
-        break;
-    case CigarOperation::MISMATCH:
-        op_char = 'X';
-        r_old = r_new - 1;
-        break;
-    case CigarOperation::DELETION:
-        op_char = 'D';
-        r_old = r_new;
-        break;
-    case CigarOperation::INSERTION:
-        op_char = 'I';
-        r_old = r_new - 1;
-        break;
-    }
-
-    if (op_new == CigarOperation::MATCH)
-        fprintf(stdout, "[DEBUG] Extension (=): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", v_old, r_old, c_old, s, v_new, r_new, c_new, s);
-    else if (op_new == CigarOperation::MISMATCH && r_old == -1 && c_old == -1)
-        fprintf(stdout, "[DEBUG] Starting mismatch (X): [%d][%d][%d] = %d\n", v_old, r_new, c_new, s + 1);
-    else
-        fprintf(stdout, "[DEBUG] Expansion (%c): [%d][%d][%d] = %d -> [%d][%d][%d] = %d\n", op_char, v_old, r_old, c_old, s, v_new, r_new, c_new, s + 1);
-#endif
 }
 
-//// unpack and store the cigar, and return the alignment block length
+// unpack and store the cigar, and return the alignment block length
 int32_t cigar_store(vector<uint16_t> packedCigar, string &cig)
 {
     CigarOperation op;

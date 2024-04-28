@@ -1,12 +1,11 @@
 CC=			gcc
 CXX=		g++
-CFLAGS=		-g -Wall -O3
-CXXFLAGS=	-g -Wall -O3 -std=c++11
-CPPFLAGS=	#-DCIGAR_DEBUG #-DGWF_DEBUG
+CFLAGS=		-Wall -O3
+CXXFLAGS=	-Wall -O3 -std=c++11
 
 INCLUDES=
 OBJS=		kalloc.o gwf-ed.o gfa-base.o gfa-io.o gfa-sub.o
-PROG=		bin/gwf-cigar
+PROG=		gwfa-tb
 LIBS=		-lz -lpthread -lm
 
 ifneq ($(asan),)
